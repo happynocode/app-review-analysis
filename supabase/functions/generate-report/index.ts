@@ -78,6 +78,7 @@ Deno.serve(async (req) => {
     activeReports.add(reportId)
 
     console.log(`🚀 Starting report generation for ${appName} (${reportId})`)
+    console.log(`📱 User-provided app name: "${appName}" (will be used for Reddit search)`)
 
     // Update report status to processing
     await supabaseClient
@@ -104,14 +105,22 @@ Deno.serve(async (req) => {
     console.log(`✅ Created scraping session ${scrapingSession.id}`)
 
     // Start the scraping process by calling the start-scraping function
-    EdgeRuntime.waitUntil(initiateScrapingProcess(reportId, appName, scrapingSession.id, appInfo, selectedApps))
+    // 🔑 关键修复：传递原始用户输入的应用名称
+    EdgeRuntime.waitUntil(initiateScrapingProcess(
+      reportId, 
+      appName, // 🎯 这是用户填写的原始名称，用于 Reddit 搜索
+      scrapingSession.id, 
+      appInfo, 
+      selectedApps
+    ))
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         message: 'Report generation started',
         reportId,
-        scrapingSessionId: scrapingSession.id
+        scrapingSessionId: scrapingSession.id,
+        userProvidedAppName: appName // 明确显示使用的是用户提供的名称
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -135,15 +144,17 @@ Deno.serve(async (req) => {
 
 async function initiateScrapingProcess(
   reportId: string, 
-  appName: string, 
+  userProvidedAppName: string, // 🔑 明确标识这是用户提供的名称
   scrapingSessionId: string, 
   appInfo?: any,
   selectedApps?: any[]
 ) {
   try {
     console.log(`🔄 Initiating scraping process for report ${reportId}`)
+    console.log(`📱 User-provided app name for Reddit search: "${userProvidedAppName}"`)
 
     // Call the start-scraping function
+    // 🎯 传递用户提供的应用名称，确保 Reddit 搜索使用正确的名称
     const scrapingResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/start-scraping`, {
       method: 'POST',
       headers: {
@@ -152,10 +163,15 @@ async function initiateScrapingProcess(
       },
       body: JSON.stringify({
         reportId,
-        appName,
+        appName: userProvidedAppName, // 🔑 确保传递用户原始输入
         scrapingSessionId,
         appInfo,
-        selectedApps
+        selectedApps,
+        // 🆕 添加额外的上下文信息
+        searchContext: {
+          userProvidedName: userProvidedAppName,
+          useUserNameForReddit: true // 明确指示 Reddit 搜索使用用户名称
+        }
       })
     })
 
@@ -166,6 +182,7 @@ async function initiateScrapingProcess(
 
     const scrapingResult = await scrapingResponse.json()
     console.log(`✅ Successfully initiated scraping for report ${reportId}:`, scrapingResult.message)
+    console.log(`🎯 Reddit will search using user-provided name: "${userProvidedAppName}"`)
 
   } catch (error) {
     console.error(`❌ Error initiating scraping for report ${reportId}:`, error)

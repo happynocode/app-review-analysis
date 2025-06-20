@@ -12,6 +12,10 @@ interface StartScrapingRequest {
   scrapingSessionId: string
   appInfo?: any
   selectedApps?: any[]
+  searchContext?: {
+    userProvidedName: string
+    useUserNameForReddit: boolean
+  }
 }
 
 Deno.serve(async (req) => {
@@ -25,7 +29,14 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    const { reportId, appName, scrapingSessionId, appInfo, selectedApps }: StartScrapingRequest = await req.json()
+    const { 
+      reportId, 
+      appName, 
+      scrapingSessionId, 
+      appInfo, 
+      selectedApps,
+      searchContext 
+    }: StartScrapingRequest = await req.json()
 
     if (!reportId || !appName || !scrapingSessionId) {
       return new Response(
@@ -38,6 +49,13 @@ Deno.serve(async (req) => {
     }
 
     console.log(`🚀 Starting scraping for report ${reportId}, app: ${appName}`)
+    
+    // 🔑 确定 Reddit 搜索使用的名称
+    const redditSearchName = searchContext?.useUserNameForReddit 
+      ? searchContext.userProvidedName 
+      : appName
+    
+    console.log(`🎯 Reddit search will use: "${redditSearchName}" (user-provided: ${searchContext?.useUserNameForReddit})`)
 
     // Update scraping session status to running
     await supabaseClient
@@ -49,14 +67,23 @@ Deno.serve(async (req) => {
       .eq('id', scrapingSessionId)
 
     // Start the scraping process in the background
-    EdgeRuntime.waitUntil(performScraping(reportId, appName, scrapingSessionId, supabaseClient, appInfo, selectedApps))
+    EdgeRuntime.waitUntil(performScraping(
+      reportId, 
+      appName, 
+      scrapingSessionId, 
+      supabaseClient, 
+      appInfo, 
+      selectedApps,
+      redditSearchName // 🎯 传递正确的 Reddit 搜索名称
+    ))
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         message: 'Scraping started',
         reportId,
-        scrapingSessionId
+        scrapingSessionId,
+        redditSearchName // 返回实际用于 Reddit 搜索的名称
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -84,31 +111,33 @@ async function performScraping(
   scrapingSessionId: string, 
   supabaseClient: any,
   appInfo?: any,
-  selectedApps?: any[]
+  selectedApps?: any[],
+  redditSearchName?: string // 🆕 专门用于 Reddit 搜索的名称
 ) {
   try {
     console.log(`📊 Starting scraping process for ${appName}`)
+    console.log(`🎯 Reddit search name: "${redditSearchName || appName}"`)
 
     // Determine scraping strategy based on available app info
     let scrapedData
     if (selectedApps && selectedApps.length > 0) {
       // Multiple apps - scrape each one
       console.log(`Scraping ${selectedApps.length} selected apps...`)
-      scrapedData = await scrapeMultipleApps(selectedApps, scrapingSessionId)
+      scrapedData = await scrapeMultipleApps(selectedApps, scrapingSessionId, redditSearchName)
     } else if (appInfo) {
       // Single app with detailed info
       console.log(`Scraping single app with detailed info: ${appInfo.name}`)
-      scrapedData = await scrapeSingleAppWithInfo(appInfo, scrapingSessionId)
+      scrapedData = await scrapeSingleAppWithInfo(appInfo, scrapingSessionId, redditSearchName)
     } else {
       // Fallback to general search
       console.log(`Fallback to general search for: ${appName}`)
-      scrapedData = await scrapeGeneralSearch(appName, scrapingSessionId)
+      scrapedData = await scrapeGeneralSearch(appName, scrapingSessionId, redditSearchName)
     }
     
     console.log(`✅ Scraping completed: Found ${scrapedData.totalReviews} total reviews`)
     console.log(`- App Store: ${scrapedData.appStore.length}`)
     console.log(`- Google Play: ${scrapedData.googlePlay.length}`)
-    console.log(`- Reddit: ${scrapedData.reddit.length}`)
+    console.log(`- Reddit: ${scrapedData.reddit.length} (searched for: "${redditSearchName || appName}")`)
     
     // Update scraping session with totals
     await supabaseClient
@@ -173,7 +202,7 @@ async function performScraping(
 }
 
 // Scrape multiple selected apps
-async function scrapeMultipleApps(selectedApps: any[], scrapingSessionId: string) {
+async function scrapeMultipleApps(selectedApps: any[], scrapingSessionId: string, redditSearchName?: string) {
   const allData = {
     appStore: [],
     googlePlay: [],
@@ -193,8 +222,10 @@ async function scrapeMultipleApps(selectedApps: any[], scrapingSessionId: string
         allData.googlePlay.push(...googlePlayData)
       }
 
-      // Search Reddit discussions for each app
-      const redditData = await scrapeRedditForApp(app.name, scrapingSessionId)
+      // 🔑 Reddit 搜索使用用户提供的名称
+      const searchName = redditSearchName || app.name
+      console.log(`🎯 Reddit search for app ${app.name} using name: "${searchName}"`)
+      const redditData = await scrapeRedditForApp(searchName, scrapingSessionId)
       allData.reddit.push(...redditData)
 
     } catch (error) {
@@ -207,7 +238,7 @@ async function scrapeMultipleApps(selectedApps: any[], scrapingSessionId: string
 }
 
 // Scrape single app (with detailed info)
-async function scrapeSingleAppWithInfo(appInfo: any, scrapingSessionId: string) {
+async function scrapeSingleAppWithInfo(appInfo: any, scrapingSessionId: string, redditSearchName?: string) {
   const scrapedData = {
     appStore: [],
     googlePlay: [],
@@ -222,8 +253,10 @@ async function scrapeSingleAppWithInfo(appInfo: any, scrapingSessionId: string) 
       scrapedData.googlePlay = await scrapeSpecificAndroidApp(appInfo, scrapingSessionId)
     }
 
-    // Search Reddit discussions
-    scrapedData.reddit = await scrapeRedditForApp(appInfo.name, scrapingSessionId)
+    // 🔑 Reddit 搜索使用用户提供的名称
+    const searchName = redditSearchName || appInfo.name
+    console.log(`🎯 Reddit search for ${appInfo.name} using name: "${searchName}"`)
+    scrapedData.reddit = await scrapeRedditForApp(searchName, scrapingSessionId)
 
   } catch (error) {
     console.error(`Error scraping app ${appInfo.name}:`, error)
@@ -234,8 +267,8 @@ async function scrapeSingleAppWithInfo(appInfo: any, scrapingSessionId: string) 
 }
 
 // General search (fallback)
-async function scrapeGeneralSearch(appName: string, scrapingSessionId: string) {
-  return await startParallelScraping(appName, scrapingSessionId)
+async function scrapeGeneralSearch(appName: string, scrapingSessionId: string, redditSearchName?: string) {
+  return await startParallelScraping(appName, scrapingSessionId, redditSearchName)
 }
 
 // Scrape specific iOS app
@@ -295,6 +328,8 @@ async function scrapeSpecificAndroidApp(appInfo: any, scrapingSessionId: string)
 // Search Reddit for specific app
 async function scrapeRedditForApp(appName: string, scrapingSessionId: string) {
   try {
+    console.log(`🎯 Calling Reddit scraper with app name: "${appName}"`)
+    
     const response = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/scrape-reddit`, {
       method: 'POST',
       headers: {
@@ -302,14 +337,17 @@ async function scrapeRedditForApp(appName: string, scrapingSessionId: string) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ 
-        appName,
+        appName, // 🔑 这里传递的是用户提供的原始名称
         scrapingSessionId 
       })
     })
 
     if (response.ok) {
       const data = await response.json()
+      console.log(`✅ Reddit scraper returned ${data.posts?.length || 0} posts for "${appName}"`)
       return data.posts || []
+    } else {
+      console.error(`❌ Reddit scraper failed: ${response.status}`)
     }
   } catch (error) {
     console.error('Error scraping Reddit for app:', error)
@@ -318,7 +356,7 @@ async function scrapeRedditForApp(appName: string, scrapingSessionId: string) {
   return []
 }
 
-function startParallelScraping(appName: string, scrapingSessionId: string) {
+function startParallelScraping(appName: string, scrapingSessionId: string, redditSearchName?: string) {
   const baseUrl = Deno.env.get('SUPABASE_URL')
   const authHeader = `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')}`
   
@@ -327,13 +365,23 @@ function startParallelScraping(appName: string, scrapingSessionId: string) {
     'Content-Type': 'application/json'
   }
 
-  const requestBody = JSON.stringify({ appName, scrapingSessionId })
+  // 🔑 为不同平台使用不同的应用名称
+  const appStoreRequestBody = JSON.stringify({ appName, scrapingSessionId })
+  const googlePlayRequestBody = JSON.stringify({ appName, scrapingSessionId })
+  const redditRequestBody = JSON.stringify({ 
+    appName: redditSearchName || appName, // 🎯 Reddit 使用用户提供的名称
+    scrapingSessionId 
+  })
+
+  console.log(`🎯 Parallel scraping setup:`)
+  console.log(`   - App Store/Google Play: "${appName}"`)
+  console.log(`   - Reddit: "${redditSearchName || appName}"`)
 
   // Start all three scraping tasks in parallel
   const appStorePromise = fetch(`${baseUrl}/functions/v1/scrape-app-store`, {
     method: 'POST',
     headers,
-    body: requestBody
+    body: appStoreRequestBody
   }).then(async (response) => {
     const result = { platform: 'app_store', success: false, data: null, error: null }
     try {
@@ -356,7 +404,7 @@ function startParallelScraping(appName: string, scrapingSessionId: string) {
   const googlePlayPromise = fetch(`${baseUrl}/functions/v1/scrape-google-play`, {
     method: 'POST',
     headers,
-    body: requestBody
+    body: googlePlayRequestBody
   }).then(async (response) => {
     const result = { platform: 'google_play', success: false, data: null, error: null }
     try {
@@ -379,14 +427,14 @@ function startParallelScraping(appName: string, scrapingSessionId: string) {
   const redditPromise = fetch(`${baseUrl}/functions/v1/scrape-reddit`, {
     method: 'POST',
     headers,
-    body: requestBody
+    body: redditRequestBody // 🔑 使用包含用户提供名称的请求体
   }).then(async (response) => {
     const result = { platform: 'reddit', success: false, data: null, error: null }
     try {
       if (response.ok) {
         result.data = await response.json()
         result.success = true
-        console.log(`Reddit scraping completed: ${result.data.posts?.length || 0} posts`)
+        console.log(`Reddit scraping completed: ${result.data.posts?.length || 0} posts (searched for: "${redditSearchName || appName}")`)
       } else {
         const errorText = await response.text()
         result.error = `HTTP ${response.status}: ${errorText}`
