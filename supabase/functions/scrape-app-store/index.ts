@@ -51,12 +51,12 @@ class AppStoreReviewScraper {
     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
   ]
 
-  // 扩展国家列表以获取更多评论
+  // 优化国家列表 - 移除20个小国家，保留主要市场
   private countries = [
     'us', 'gb', 'ca', 'au', 'de', 'fr', 'jp', 'kr', 'cn', 'in',
-    'br', 'mx', 'es', 'it', 'nl', 'se', 'no', 'dk', 'fi', 'ru',
-    'pl', 'tr', 'ar', 'cl', 'co', 'pe', 'za', 'eg', 'th', 'vn',
-    'id', 'my', 'sg', 'ph', 'nz', 'ie', 'at', 'ch', 'be', 'pt'
+    'br', 'mx', 'es', 'it', 'nl', 'se', 'no', 'dk', 'fi', 'ru'
+    // 移除的小国家: 'pl', 'tr', 'ar', 'cl', 'co', 'pe', 'za', 'eg', 'th', 'vn',
+    // 'id', 'my', 'sg', 'ph', 'nz', 'ie', 'at', 'ch', 'be', 'pt'
   ]
 
   private rateLimitDelay = 800 // 减少延迟以提高效率
@@ -430,14 +430,14 @@ class AppStoreReviewScraper {
     appName: string, 
     appId?: string, 
     maxPages: number = 50, // 增加默认页数
-    countries: string[] = ['us', 'gb', 'ca', 'au', 'de', 'fr', 'jp', 'kr', 'in', 'br'] // 增加默认国家
+    countries: string[] = ['us', 'gb', 'ca', 'au', 'de', 'fr', 'jp', 'kr', 'in', 'br'] // 优化后的默认国家列表
   ): Promise<{ reviews: Review[]; stats: ScrapingStats; appInfo?: any }> {
     const startTime = Date.now()
-    console.log(`\n🚀 === ENHANCED APP STORE SCRAPER STARTED ===`)
+    console.log(`\n🚀 === OPTIMIZED APP STORE SCRAPER STARTED ===`)
     console.log(`📱 App Name: "${appName}"`)
     console.log(`🆔 App ID: ${appId || 'Will search automatically'}`)
     console.log(`📄 Max Pages: ${maxPages}`)
-    console.log(`🌍 Countries: ${countries.join(', ').toUpperCase()}`)
+    console.log(`🌍 Countries (Optimized): ${countries.join(', ').toUpperCase()}`)
     console.log(`⏰ Start Time: ${new Date().toISOString()}`)
 
     const stats: ScrapingStats = {
@@ -464,7 +464,7 @@ class AppStoreReviewScraper {
       if (!finalAppId) {
         console.log(`\n🔍 === STEP 1: ENHANCED APP SEARCH ===`)
         
-        // 在更多国家搜索以提高找到应用的概率
+        // 在主要国家搜索以提高找到应用的概率
         const searchCountries = ['us', 'gb', 'ca', 'au', 'de', 'fr', 'jp']
         
         for (const country of searchCountries) {
@@ -487,7 +487,7 @@ class AppStoreReviewScraper {
       }
 
       // 步骤2: 增强的多国家多页抓取
-      console.log(`\n📚 === STEP 2: ENHANCED MULTI-COUNTRY REVIEW SCRAPING ===`)
+      console.log(`\n📚 === STEP 2: OPTIMIZED MULTI-COUNTRY REVIEW SCRAPING ===`)
       const allReviews = await this.scrapeMultipleCountries(finalAppId, maxPages, countries)
 
       // 步骤3: 数据处理和统计
@@ -548,7 +548,7 @@ class AppStoreReviewScraper {
       }
 
       // 步骤4: 输出最终统计
-      console.log(`\n🎯 === ENHANCED FINAL RESULTS ===`)
+      console.log(`\n🎯 === OPTIMIZED FINAL RESULTS ===`)
       console.log(`✅ Total Reviews: ${stats.totalReviews}`)
       console.log(`🌍 Countries Scraped: ${stats.countriesScraped.join(', ')}`)
       console.log(`📄 Pages Crawled: ${stats.pagesCrawled}`)
@@ -577,7 +577,7 @@ class AppStoreReviewScraper {
       stats.errors.push(error.message)
       stats.scrapingDuration = Date.now() - startTime
       
-      console.error(`❌ === ENHANCED SCRAPING FAILED ===`)
+      console.error(`❌ === OPTIMIZED SCRAPING FAILED ===`)
       console.error(`Error: ${error.message}`)
       console.error(`Duration: ${(stats.scrapingDuration / 1000).toFixed(1)}s`)
       
@@ -637,7 +637,7 @@ Deno.serve(async (req) => {
       appId, 
       scrapingSessionId, 
       maxPages = 50, // 增加默认页数
-      countries = ['us', 'gb', 'ca', 'au', 'de', 'fr', 'jp', 'kr', 'in', 'br', 'mx', 'es', 'it', 'nl', 'se'] // 更多国家
+      countries = ['us', 'gb', 'ca', 'au', 'de', 'fr', 'jp', 'kr', 'in', 'br', 'mx', 'es', 'it', 'nl', 'se'] // 优化后的国家列表
     }: ScrapeRequest = await req.json()
 
     if (!appName && !appId) {
@@ -650,10 +650,10 @@ Deno.serve(async (req) => {
       )
     }
 
-    console.log(`🚀 Enhanced App Store scraping request received`)
+    console.log(`🚀 Optimized App Store scraping request received`)
     console.log(`📱 App: ${appName || 'Unknown'} (ID: ${appId || 'Auto-detect'})`)
     console.log(`📄 Max Pages: ${maxPages}`)
-    console.log(`🌍 Countries: ${countries.join(', ')}`)
+    console.log(`🌍 Countries (Optimized): ${countries.join(', ')}`)
 
     const scraper = new AppStoreReviewScraper()
     const result = await scraper.scrapeAppStoreReviews(appName, appId, maxPages, countries)
@@ -684,7 +684,7 @@ Deno.serve(async (req) => {
             country: review.country,
             page: review.page,
             review_id: review.reviewId,
-            scraper_version: 'enhanced_multi_v3.0',
+            scraper_version: 'optimized_v4.0',
             scraping_stats: result.stats
           }
         }))
@@ -721,15 +721,15 @@ Deno.serve(async (req) => {
           url: `https://apps.apple.com/app/id${appId || 'unknown'}`
         },
         stats: result.stats,
-        message: `Successfully scraped ${result.reviews.length} reviews from ${result.stats.countriesScraped.length} countries across ${result.stats.pagesCrawled} pages using enhanced multi-strategy approach`,
+        message: `Successfully scraped ${result.reviews.length} reviews from ${result.stats.countriesScraped.length} countries (optimized country list) across ${result.stats.pagesCrawled} pages`,
         timestamp: new Date().toISOString(),
-        scraper_version: 'enhanced_multi_v3.0'
+        scraper_version: 'optimized_v4.0'
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
   } catch (error) {
-    console.error('❌ Critical error in Enhanced App Store scraping:', error)
+    console.error('❌ Critical error in Optimized App Store scraping:', error)
     
     return new Response(
       JSON.stringify({ 
@@ -743,7 +743,7 @@ Deno.serve(async (req) => {
           totalApiCalls: 0
         },
         timestamp: new Date().toISOString(),
-        scraper_version: 'enhanced_multi_v3.0'
+        scraper_version: 'optimized_v4.0'
       }),
       { 
         status: 500, 

@@ -18,6 +18,13 @@ interface StartAnalysisRequest {
   }
 }
 
+// 设置平台评论上限
+const PLATFORM_LIMITS = {
+  APP_STORE_LIMIT: 4000,
+  GOOGLE_PLAY_LIMIT: 4000,
+  REDDIT_LIMIT: 1000 // Reddit 保持较低限制，因为帖子通常更长
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
@@ -43,6 +50,7 @@ Deno.serve(async (req) => {
 
     console.log(`🧠 Starting AI analysis for report ${reportId}, app: ${appName}`)
     console.log(`📊 Data summary:`, scrapedDataSummary)
+    console.log(`🎯 Platform limits: App Store=${PLATFORM_LIMITS.APP_STORE_LIMIT}, Google Play=${PLATFORM_LIMITS.GOOGLE_PLAY_LIMIT}, Reddit=${PLATFORM_LIMITS.REDDIT_LIMIT}`)
 
     // Start the analysis process in the background
     EdgeRuntime.waitUntil(performAnalysis(reportId, appName, scrapingSessionId, supabaseClient, scrapedDataSummary))
@@ -89,9 +97,9 @@ async function performAnalysis(
       console.log('No reviews found, creating empty report')
       await createEmptyReport(reportId, appName, supabaseClient)
     } else {
-      // Fetch ALL scraped reviews from database using pagination
-      console.log(`📥 Fetching ALL ${scrapedDataSummary.totalReviews} reviews from database...`)
-      const scrapedData = await fetchAllScrapedReviewsPaginated(scrapingSessionId, supabaseClient)
+      // Fetch ALL scraped reviews from database using pagination with platform limits
+      console.log(`📥 Fetching reviews from database with platform limits...`)
+      const scrapedData = await fetchScrapedReviewsWithLimits(scrapingSessionId, supabaseClient)
       
       console.log(`🧠 Starting AI analysis with batch processing for ${scrapedData.totalReviews} reviews...`)
       const analysisResult = await analyzeWithDeepSeekBatch(appName, scrapedData)
@@ -122,62 +130,74 @@ async function performAnalysis(
   }
 }
 
-// Fetch ALL scraped reviews using pagination to avoid Supabase limits
-async function fetchAllScrapedReviewsPaginated(scrapingSessionId: string, supabaseClient: any) {
-  console.log(`📥 Fetching ALL reviews for scraping session ${scrapingSessionId}...`)
+// Fetch scraped reviews with platform-specific limits
+async function fetchScrapedReviewsWithLimits(scrapingSessionId: string, supabaseClient: any) {
+  console.log(`📥 Fetching reviews for scraping session ${scrapingSessionId} with platform limits...`)
   
-  const allReviews = []
-  const pageSize = 1000 // Fetch 1000 reviews per page
-  let page = 0
-  let hasMore = true
-
-  while (hasMore) {
-    const from = page * pageSize
-    const to = from + pageSize - 1
-
-    console.log(`📄 Fetching page ${page + 1} (rows ${from}-${to})...`)
-
-    const { data: reviews, error } = await supabaseClient
-      .from('scraped_reviews')
-      .select('*')
-      .eq('scraping_session_id', scrapingSessionId)
-      .order('created_at', { ascending: false })
-      .range(from, to)
-
-    if (error) {
-      throw new Error(`Failed to fetch scraped reviews page ${page + 1}: ${error.message}`)
-    }
-
-    if (reviews && reviews.length > 0) {
-      allReviews.push(...reviews)
-      console.log(`✅ Page ${page + 1}: Fetched ${reviews.length} reviews (Total: ${allReviews.length})`)
-      
-      // Check if we got a full page (indicating there might be more)
-      hasMore = reviews.length === pageSize
-      page++
-    } else {
-      hasMore = false
-      console.log(`📄 Page ${page + 1}: No more reviews found`)
-    }
-
-    // Small delay to avoid overwhelming the database
-    if (hasMore) {
-      await new Promise(resolve => setTimeout(resolve, 100))
-    }
-  }
-
-  // Organize reviews by platform
   const scrapedData = {
-    appStore: allReviews.filter(r => r.platform === 'app_store'),
-    googlePlay: allReviews.filter(r => r.platform === 'google_play'),
-    reddit: allReviews.filter(r => r.platform === 'reddit'),
-    totalReviews: allReviews.length
+    appStore: [],
+    googlePlay: [],
+    reddit: [],
+    totalReviews: 0
   }
 
-  console.log(`📊 Fetched ALL reviews: ${scrapedData.totalReviews} total`)
-  console.log(`   - App Store: ${scrapedData.appStore.length} reviews`)
-  console.log(`   - Google Play: ${scrapedData.googlePlay.length} reviews`)
-  console.log(`   - Reddit: ${scrapedData.reddit.length} posts`)
+  // Fetch App Store reviews (limit: 4000)
+  console.log(`📱 Fetching App Store reviews (limit: ${PLATFORM_LIMITS.APP_STORE_LIMIT})...`)
+  const { data: appStoreReviews, error: appStoreError } = await supabaseClient
+    .from('scraped_reviews')
+    .select('*')
+    .eq('scraping_session_id', scrapingSessionId)
+    .eq('platform', 'app_store')
+    .order('created_at', { ascending: false })
+    .limit(PLATFORM_LIMITS.APP_STORE_LIMIT)
+
+  if (appStoreError) {
+    console.error('Error fetching App Store reviews:', appStoreError)
+  } else {
+    scrapedData.appStore = appStoreReviews || []
+    console.log(`✅ Fetched ${scrapedData.appStore.length} App Store reviews`)
+  }
+
+  // Fetch Google Play reviews (limit: 4000)
+  console.log(`🤖 Fetching Google Play reviews (limit: ${PLATFORM_LIMITS.GOOGLE_PLAY_LIMIT})...`)
+  const { data: googlePlayReviews, error: googlePlayError } = await supabaseClient
+    .from('scraped_reviews')
+    .select('*')
+    .eq('scraping_session_id', scrapingSessionId)
+    .eq('platform', 'google_play')
+    .order('created_at', { ascending: false })
+    .limit(PLATFORM_LIMITS.GOOGLE_PLAY_LIMIT)
+
+  if (googlePlayError) {
+    console.error('Error fetching Google Play reviews:', googlePlayError)
+  } else {
+    scrapedData.googlePlay = googlePlayReviews || []
+    console.log(`✅ Fetched ${scrapedData.googlePlay.length} Google Play reviews`)
+  }
+
+  // Fetch Reddit posts (limit: 1000)
+  console.log(`💬 Fetching Reddit posts (limit: ${PLATFORM_LIMITS.REDDIT_LIMIT})...`)
+  const { data: redditPosts, error: redditError } = await supabaseClient
+    .from('scraped_reviews')
+    .select('*')
+    .eq('scraping_session_id', scrapingSessionId)
+    .eq('platform', 'reddit')
+    .order('created_at', { ascending: false })
+    .limit(PLATFORM_LIMITS.REDDIT_LIMIT)
+
+  if (redditError) {
+    console.error('Error fetching Reddit posts:', redditError)
+  } else {
+    scrapedData.reddit = redditPosts || []
+    console.log(`✅ Fetched ${scrapedData.reddit.length} Reddit posts`)
+  }
+
+  scrapedData.totalReviews = scrapedData.appStore.length + scrapedData.googlePlay.length + scrapedData.reddit.length
+
+  console.log(`📊 Fetched reviews with platform limits: ${scrapedData.totalReviews} total`)
+  console.log(`   - App Store: ${scrapedData.appStore.length}/${PLATFORM_LIMITS.APP_STORE_LIMIT} reviews`)
+  console.log(`   - Google Play: ${scrapedData.googlePlay.length}/${PLATFORM_LIMITS.GOOGLE_PLAY_LIMIT} reviews`)
+  console.log(`   - Reddit: ${scrapedData.reddit.length}/${PLATFORM_LIMITS.REDDIT_LIMIT} posts`)
   
   return scrapedData
 }
@@ -215,11 +235,11 @@ async function createEmptyReport(reportId: string, appName: string, supabaseClie
   }
 }
 
-// 🚀 Optimized Batch Analysis with DeepSeek - Process ALL reviews with smaller batches
+// 🚀 Optimized Batch Analysis with DeepSeek - Process reviews with platform limits
 async function analyzeWithDeepSeekBatch(appName: string, scrapedData: any) {
   console.log(`🧠 Starting comprehensive batch analysis for ${appName}`)
   
-  // Combine ALL reviews into a single array - NO LIMITS
+  // Combine reviews from all platforms with platform limits applied
   const allReviews = [
     ...scrapedData.appStore.map((r: any) => `[App Store] ${r.review_text}`),
     ...scrapedData.googlePlay.map((r: any) => `[Google Play] ${r.review_text}`),
@@ -230,7 +250,10 @@ async function analyzeWithDeepSeekBatch(appName: string, scrapedData: any) {
     throw new Error('No reviews available for analysis')
   }
 
-  console.log(`📊 Total reviews to analyze: ${allReviews.length} (NO LIMITS APPLIED)`)
+  console.log(`📊 Total reviews to analyze: ${allReviews.length} (with platform limits applied)`)
+  console.log(`   - App Store: ${scrapedData.appStore.length} reviews (limit: ${PLATFORM_LIMITS.APP_STORE_LIMIT})`)
+  console.log(`   - Google Play: ${scrapedData.googlePlay.length} reviews (limit: ${PLATFORM_LIMITS.GOOGLE_PLAY_LIMIT})`)
+  console.log(`   - Reddit: ${scrapedData.reddit.length} posts (limit: ${PLATFORM_LIMITS.REDDIT_LIMIT})`)
 
   // 🔄 Step 1: Split reviews into smaller batches to avoid token limits and timeouts
   const BATCH_SIZE = 400 // Smaller batch size to stay well within DeepSeek's token limits
@@ -274,7 +297,7 @@ async function analyzeWithDeepSeekBatch(appName: string, scrapedData: any) {
   // 🔄 Step 3: Merge and deduplicate results
   const mergedResult = await mergeAndDeduplicateResults(appName, batchResults)
   
-  console.log(`🎯 Final result: ${mergedResult.themes.length} unique themes from ${allReviews.length} reviews`)
+  console.log(`🎯 Final result: ${mergedResult.themes.length} unique themes from ${allReviews.length} reviews (platform limits applied)`)
   
   return mergedResult
 }
