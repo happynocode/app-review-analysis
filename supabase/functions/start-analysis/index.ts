@@ -204,7 +204,7 @@ async function analyzeWithDeepSeekBatch(appName: string, scrapedData: any) {
   console.log(`📊 Total reviews to analyze: ${allReviews.length} (NO LIMITS APPLIED)`)
 
   // 🔄 Step 1: Split reviews into batches for API processing
-  const BATCH_SIZE = 1000 // Increased batch size for efficiency
+  const BATCH_SIZE = 800 // Optimized batch size to stay within token limits
   const batches = []
   
   for (let i = 0; i < allReviews.length; i += BATCH_SIZE) {
@@ -264,7 +264,7 @@ You are an expert product analyst. Analyze the following user reviews for the ap
 This is batch ${batchNumber} of ${totalBatches} total batches.
 
 Your task:
-1. Identify the TOP 15-20 most important themes from this batch of reviews
+1. Identify the TOP 12-15 most important themes from this batch of reviews
 2. For each theme, provide 2-3 representative quotes from actual reviews
 3. Generate 2-3 specific, actionable product suggestions for each theme
 
@@ -317,7 +317,7 @@ IMPORTANT: Respond with ONLY valid JSON in English, no markdown formatting, no c
         messages: [
           {
             role: 'system',
-            content: `You are an expert product analyst specializing in user feedback analysis. Always respond with valid JSON only in English, no markdown formatting, no code blocks, no additional text. Focus on finding 15-20 distinct themes per batch.`
+            content: `You are an expert product analyst specializing in user feedback analysis. Always respond with valid JSON only in English, no markdown formatting, no code blocks, no additional text. Focus on finding 12-15 distinct themes per batch.`
           },
           {
             role: 'user',
@@ -325,7 +325,7 @@ IMPORTANT: Respond with ONLY valid JSON in English, no markdown formatting, no c
           }
         ],
         temperature: 0.3,
-        max_tokens: 10000 // Increased for more themes
+        max_tokens: 8000 // Within DeepSeek's limit of 8192
       })
     })
 
@@ -411,10 +411,18 @@ async function intelligentMergeWithDeepSeek(appName: string, allThemes: any[]) {
 
   console.log(`🧠 Using DeepSeek to merge and deduplicate ${allThemes.length} themes...`)
 
+  // 如果主题太多，先进行预处理分组
+  let themesToProcess = allThemes
+  if (allThemes.length > 100) {
+    console.log(`⚠️ Too many themes (${allThemes.length}), pre-processing to reduce size...`)
+    themesToProcess = await preProcessThemes(allThemes)
+    console.log(`📊 Pre-processed to ${themesToProcess.length} themes`)
+  }
+
   const prompt = `
 You are an expert product analyst. You have received multiple theme analyses for the app "${appName}" from different batches of user reviews.
 
-Your task is to merge, deduplicate, and consolidate these themes into the TOP 50 most important themes.
+Your task is to merge, deduplicate, and consolidate these themes into the TOP 30 most important themes.
 
 Instructions:
 1. Merge similar themes together (e.g., "App Crashes" and "Stability Issues" should be one theme)
@@ -423,10 +431,10 @@ Instructions:
 4. Ensure each final theme is distinct and meaningful
 5. Combine quotes from similar themes (keep the best examples)
 6. Merge suggestions for similar themes
-7. Return exactly 50 themes, ranked by importance and user impact
+7. Return exactly 30 themes, ranked by importance and user impact
 
-Input themes to merge (${allThemes.length} total):
-${JSON.stringify(allThemes, null, 2)}
+Input themes to merge (${themesToProcess.length} total):
+${JSON.stringify(themesToProcess.slice(0, 80), null, 2)}
 
 IMPORTANT: Respond with ONLY valid JSON in English, no markdown formatting, no code blocks, no additional text.
 
@@ -450,7 +458,7 @@ IMPORTANT: Respond with ONLY valid JSON in English, no markdown formatting, no c
   ]
 }
 
-Make sure to return exactly 50 themes, ranked by importance and user impact.
+Make sure to return exactly 30 themes, ranked by importance and user impact.
 `
 
   try {
@@ -465,7 +473,7 @@ Make sure to return exactly 50 themes, ranked by importance and user impact.
         messages: [
           {
             role: 'system',
-            content: 'You are an expert product analyst specializing in theme consolidation and deduplication. Always respond with valid JSON only in English, no markdown formatting, no code blocks, no additional text. Return exactly 50 consolidated themes ranked by importance.'
+            content: 'You are an expert product analyst specializing in theme consolidation and deduplication. Always respond with valid JSON only in English, no markdown formatting, no code blocks, no additional text. Return exactly 30 consolidated themes ranked by importance.'
           },
           {
             role: 'user',
@@ -473,7 +481,7 @@ Make sure to return exactly 50 themes, ranked by importance and user impact.
           }
         ],
         temperature: 0.2, // Lower temperature for more consistent merging
-        max_tokens: 20000 // Increased for 50 themes
+        max_tokens: 8000 // Within DeepSeek's limit
       })
     })
 
@@ -505,10 +513,10 @@ Make sure to return exactly 50 themes, ranked by importance and user impact.
       throw new Error('Invalid merged result structure - missing themes array')
     }
 
-    // Ensure we have up to 50 themes
-    if (mergedResult.themes.length > 50) {
-      console.log(`⚠️ Trimming to 50 themes (received ${mergedResult.themes.length})`)
-      mergedResult.themes = mergedResult.themes.slice(0, 50)
+    // Ensure we have up to 30 themes
+    if (mergedResult.themes.length > 30) {
+      console.log(`⚠️ Trimming to 30 themes (received ${mergedResult.themes.length})`)
+      mergedResult.themes = mergedResult.themes.slice(0, 30)
     }
 
     console.log(`✅ Successfully merged to ${mergedResult.themes.length} final themes`)
@@ -521,6 +529,38 @@ Make sure to return exactly 50 themes, ranked by importance and user impact.
     console.log('🔄 Falling back to simple deduplication...')
     return simpleDeduplication(allThemes)
   }
+}
+
+// 预处理主题（当主题数量过多时）
+async function preProcessThemes(allThemes: any[]) {
+  // 简单的预处理：按标题相似度分组，每组只保留一个代表
+  const groups = new Map()
+  
+  for (const theme of allThemes) {
+    const normalizedTitle = theme.title.toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    
+    const key = normalizedTitle.substring(0, 10) // 使用前10个字符作为分组键
+    
+    if (!groups.has(key)) {
+      groups.set(key, [])
+    }
+    groups.get(key).push(theme)
+  }
+  
+  // 从每组中选择最好的主题
+  const processedThemes = []
+  for (const [key, groupThemes] of groups) {
+    // 选择描述最长的主题作为代表
+    const bestTheme = groupThemes.reduce((best, current) => 
+      current.description.length > best.description.length ? current : best
+    )
+    processedThemes.push(bestTheme)
+  }
+  
+  return processedThemes.slice(0, 80) // 最多80个主题
 }
 
 // 简单去重（备用方案）
@@ -537,8 +577,8 @@ function simpleDeduplication(allThemes: any[]) {
     }
   }
 
-  // Limit to 50 themes
-  const finalThemes = uniqueThemes.slice(0, 50)
+  // Limit to 30 themes
+  const finalThemes = uniqueThemes.slice(0, 30)
   
   console.log(`📊 Simple deduplication: ${allThemes.length} → ${finalThemes.length} themes`)
   
