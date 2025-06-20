@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Search, Smartphone, Apple, CheckCircle, ExternalLink, Star, Users } from 'lucide-react'
+import { X, Search, Smartphone, Apple, CheckCircle, ExternalLink, Star, Users, MessageCircle, ArrowRight } from 'lucide-react'
 import { Button } from './ui/Button'
 import { LoadingSpinner } from './LoadingSpinner'
 
@@ -32,13 +32,15 @@ interface AppSelectionModalProps {
   onClose: () => void
   companyName: string
   onAppsSelected: (selectedApps: AppInfo[]) => void
+  onRedditOnlySelected: () => void // 新增：仅 Reddit 分析回调
 }
 
 export const AppSelectionModal: React.FC<AppSelectionModalProps> = ({
   isOpen,
   onClose,
   companyName,
-  onAppsSelected
+  onAppsSelected,
+  onRedditOnlySelected
 }) => {
   const [searchResult, setSearchResult] = useState<SearchResult | null>(null)
   const [selectedApps, setSelectedApps] = useState<Set<string>>(new Set())
@@ -118,6 +120,11 @@ export const AppSelectionModal: React.FC<AppSelectionModalProps> = ({
       const selected = allApps.filter(app => selectedApps.has(app.id))
       onAppsSelected(selected)
     }
+    onClose()
+  }
+
+  const handleRedditOnly = () => {
+    onRedditOnlySelected()
     onClose()
   }
 
@@ -242,9 +249,9 @@ export const AppSelectionModal: React.FC<AppSelectionModalProps> = ({
           {/* Header */}
           <div className="flex items-center justify-between p-6 border-b border-white/10">
             <div>
-              <h2 className="text-xl font-semibold text-white">Select Apps to Analyze</h2>
+              <h2 className="text-xl font-semibold text-white">Select Analysis Type</h2>
               <p className="text-white/60 mt-1">
-                Found multiple apps for <span className="text-[#2DD4BF] font-medium">{companyName}</span>
+                Choose apps to analyze or analyze Reddit discussions only for <span className="text-[#2DD4BF] font-medium">{companyName}</span>
               </p>
             </div>
             <button
@@ -272,68 +279,118 @@ export const AppSelectionModal: React.FC<AppSelectionModalProps> = ({
                   Retry
                 </Button>
               </div>
-            ) : searchResult ? (
+            ) : (
               <div className="space-y-6">
-                {/* iOS Apps */}
-                {searchResult.iosApps.length > 0 && (
-                  <div>
-                    <div className="flex items-center mb-4">
-                      <Apple className="w-5 h-5 text-white mr-2" />
-                      <h3 className="text-lg font-medium text-white">
-                        iOS Apps ({searchResult.iosApps.length})
+                {/* Reddit Only Option - Always visible */}
+                <div className="bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/20 rounded-xl p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-start space-x-4">
+                      <div className="w-12 h-12 bg-orange-500/20 rounded-xl flex items-center justify-center">
+                        <MessageCircle className="w-6 h-6 text-orange-400" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-white mb-2">
+                          Reddit Discussions Only
+                        </h3>
+                        <p className="text-white/70 text-sm leading-relaxed mb-3">
+                          Skip app store reviews and analyze only Reddit discussions about "{companyName}". 
+                          Perfect for understanding community sentiment, user experiences, and general discussions.
+                        </p>
+                        <div className="flex items-center space-x-4 text-xs text-orange-300">
+                          <span>• Community discussions</span>
+                          <span>• User experiences</span>
+                          <span>• General sentiment</span>
+                          <span>• Faster analysis</span>
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={handleRedditOnly}
+                      className="bg-orange-600 hover:bg-orange-700 text-white flex items-center"
+                      icon={ArrowRight}
+                    >
+                      Analyze Reddit Only
+                    </Button>
+                  </div>
+                </div>
+
+                {/* App Selection Section */}
+                {searchResult && (
+                  <>
+                    <div className="border-t border-white/10 pt-6">
+                      <h3 className="text-lg font-semibold text-white mb-4">
+                        Or Select Specific Apps to Analyze
                       </h3>
+                      <p className="text-white/60 text-sm mb-6">
+                        Choose specific iOS and Android apps for comprehensive analysis including app store reviews and Reddit discussions.
+                      </p>
                     </div>
-                    <div className="grid gap-4">
-                      {searchResult.iosApps.map(app => (
-                        <AppCard key={app.id} app={app} />
-                      ))}
-                    </div>
-                  </div>
-                )}
 
-                {/* Android Apps */}
-                {searchResult.androidApps.length > 0 && (
-                  <div>
-                    <div className="flex items-center mb-4">
-                      <Smartphone className="w-5 h-5 text-white mr-2" />
-                      <h3 className="text-lg font-medium text-white">
-                        Android Apps ({searchResult.androidApps.length})
-                      </h3>
-                    </div>
-                    <div className="grid gap-4">
-                      {searchResult.androidApps.map(app => (
-                        <AppCard key={app.id} app={app} />
-                      ))}
-                    </div>
-                  </div>
-                )}
+                    {/* iOS Apps */}
+                    {searchResult.iosApps.length > 0 && (
+                      <div>
+                        <div className="flex items-center mb-4">
+                          <Apple className="w-5 h-5 text-white mr-2" />
+                          <h3 className="text-lg font-medium text-white">
+                            iOS Apps ({searchResult.iosApps.length})
+                          </h3>
+                        </div>
+                        <div className="grid gap-4">
+                          {searchResult.iosApps.map(app => (
+                            <AppCard key={app.id} app={app} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
-                {/* No Results */}
-                {searchResult.totalFound === 0 && (
-                  <div className="text-center py-12">
-                    <Search className="w-16 h-16 text-white/20 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-white mb-2">No Apps Found</h3>
-                    <p className="text-white/60 mb-6">
-                      No apps found related to "{companyName}"
-                    </p>
-                    <div className="space-y-2 text-sm text-white/50">
-                      {searchResult.suggestions.map((suggestion, index) => (
-                        <p key={index}>• {suggestion}</p>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                    {/* Android Apps */}
+                    {searchResult.androidApps.length > 0 && (
+                      <div>
+                        <div className="flex items-center mb-4">
+                          <Smartphone className="w-5 h-5 text-white mr-2" />
+                          <h3 className="text-lg font-medium text-white">
+                            Android Apps ({searchResult.androidApps.length})
+                          </h3>
+                        </div>
+                        <div className="grid gap-4">
+                          {searchResult.androidApps.map(app => (
+                            <AppCard key={app.id} app={app} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
-                {/* Selection Summary */}
-                {selectedApps.size > 0 && (
-                  <div className="bg-[#2DD4BF]/10 border border-[#2DD4BF]/20 rounded-xl p-4">
-                    <p className="text-white">
-                      Selected <span className="font-semibold text-[#2DD4BF]">{selectedApps.size}</span> apps for analysis
-                    </p>
-                  </div>
+                    {/* No Apps Found */}
+                    {searchResult.totalFound === 0 && (
+                      <div className="text-center py-8 border border-white/10 rounded-xl">
+                        <Search className="w-12 h-12 text-white/20 mx-auto mb-4" />
+                        <h3 className="text-lg font-medium text-white mb-2">No Apps Found</h3>
+                        <p className="text-white/60 mb-4">
+                          No mobile apps found for "{companyName}"
+                        </p>
+                        <p className="text-white/50 text-sm mb-4">
+                          You can still analyze Reddit discussions using the option above.
+                        </p>
+                        <div className="space-y-2 text-sm text-white/50">
+                          {searchResult.suggestions.map((suggestion, index) => (
+                            <p key={index}>• {suggestion}</p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Selection Summary */}
+                    {selectedApps.size > 0 && (
+                      <div className="bg-[#2DD4BF]/10 border border-[#2DD4BF]/20 rounded-xl p-4">
+                        <p className="text-white">
+                          Selected <span className="font-semibold text-[#2DD4BF]">{selectedApps.size}</span> apps for comprehensive analysis
+                        </p>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
-            ) : null}
+            )}
           </div>
 
           {/* Footer */}
@@ -351,12 +408,14 @@ export const AppSelectionModal: React.FC<AppSelectionModalProps> = ({
                   Clear Selection
                 </Button>
               )}
-              <Button 
-                onClick={handleConfirmSelection}
-                disabled={selectedApps.size === 0}
-              >
-                Analyze Selected Apps ({selectedApps.size})
-              </Button>
+              {selectedApps.size > 0 && (
+                <Button 
+                  onClick={handleConfirmSelection}
+                  icon={ArrowRight}
+                >
+                  Analyze Selected Apps ({selectedApps.size})
+                </Button>
+              )}
             </div>
           </div>
         </motion.div>

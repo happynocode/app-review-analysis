@@ -11,6 +11,7 @@ interface GenerateReportRequest {
   appName: string
   appInfo?: any // Single app detailed information
   selectedApps?: any[] // Multiple apps information
+  redditOnly?: boolean // 🆕 仅 Reddit 分析标识
 }
 
 // Track active report generations to prevent duplicates
@@ -28,7 +29,7 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    const { reportId, appName, appInfo, selectedApps }: GenerateReportRequest = await req.json()
+    const { reportId, appName, appInfo, selectedApps, redditOnly }: GenerateReportRequest = await req.json()
 
     if (!reportId || !appName) {
       return new Response(
@@ -79,6 +80,11 @@ Deno.serve(async (req) => {
 
     console.log(`🚀 Starting report generation for ${appName} (${reportId})`)
     console.log(`📱 User-provided app name: "${appName}" (will be used for Reddit search)`)
+    
+    // 🆕 检查是否为仅 Reddit 分析
+    if (redditOnly) {
+      console.log(`🎯 Reddit-only analysis mode enabled for "${appName}"`)
+    }
 
     // Update report status to processing
     await supabaseClient
@@ -105,22 +111,24 @@ Deno.serve(async (req) => {
     console.log(`✅ Created scraping session ${scrapingSession.id}`)
 
     // Start the scraping process by calling the start-scraping function
-    // 🔑 关键修复：传递原始用户输入的应用名称
+    // 🔑 关键修复：传递原始用户输入的应用名称和 Reddit-only 标识
     EdgeRuntime.waitUntil(initiateScrapingProcess(
       reportId, 
       appName, // 🎯 这是用户填写的原始名称，用于 Reddit 搜索
       scrapingSession.id, 
       appInfo, 
-      selectedApps
+      selectedApps,
+      redditOnly // 🆕 传递 Reddit-only 标识
     ))
 
     return new Response(
       JSON.stringify({ 
         success: true, 
-        message: 'Report generation started',
+        message: redditOnly ? 'Reddit-only analysis started' : 'Report generation started',
         reportId,
         scrapingSessionId: scrapingSession.id,
-        userProvidedAppName: appName // 明确显示使用的是用户提供的名称
+        userProvidedAppName: appName, // 明确显示使用的是用户提供的名称
+        analysisType: redditOnly ? 'reddit_only' : 'comprehensive' // 🆕 分析类型
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -147,11 +155,17 @@ async function initiateScrapingProcess(
   userProvidedAppName: string, // 🔑 明确标识这是用户提供的名称
   scrapingSessionId: string, 
   appInfo?: any,
-  selectedApps?: any[]
+  selectedApps?: any[],
+  redditOnly?: boolean // 🆕 Reddit-only 标识
 ) {
   try {
     console.log(`🔄 Initiating scraping process for report ${reportId}`)
     console.log(`📱 User-provided app name for Reddit search: "${userProvidedAppName}"`)
+    
+    // 🆕 Reddit-only 模式日志
+    if (redditOnly) {
+      console.log(`🎯 Reddit-only mode: Skipping app store scraping, analyzing Reddit discussions only`)
+    }
 
     // Call the start-scraping function
     // 🎯 传递用户提供的应用名称，确保 Reddit 搜索使用正确的名称
@@ -167,10 +181,12 @@ async function initiateScrapingProcess(
         scrapingSessionId,
         appInfo,
         selectedApps,
+        redditOnly, // 🆕 传递 Reddit-only 标识
         // 🆕 添加额外的上下文信息
         searchContext: {
           userProvidedName: userProvidedAppName,
-          useUserNameForReddit: true // 明确指示 Reddit 搜索使用用户名称
+          useUserNameForReddit: true, // 明确指示 Reddit 搜索使用用户名称
+          redditOnlyMode: redditOnly || false // 🆕 Reddit-only 模式标识
         }
       })
     })
@@ -183,6 +199,11 @@ async function initiateScrapingProcess(
     const scrapingResult = await scrapingResponse.json()
     console.log(`✅ Successfully initiated scraping for report ${reportId}:`, scrapingResult.message)
     console.log(`🎯 Reddit will search using user-provided name: "${userProvidedAppName}"`)
+    
+    // 🆕 Reddit-only 模式确认
+    if (redditOnly) {
+      console.log(`✅ Reddit-only analysis mode confirmed - app store scraping will be skipped`)
+    }
 
   } catch (error) {
     console.error(`❌ Error initiating scraping for report ${reportId}:`, error)

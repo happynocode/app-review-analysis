@@ -125,6 +125,43 @@ export const LandingPage: React.FC = () => {
     }
   }
 
+  // 🆕 处理仅 Reddit 分析
+  const handleRedditOnlySelected = async () => {
+    setIsGenerating(true)
+    
+    try {
+      // 创建仅 Reddit 分析的报告
+      const report = await createNewReport(user!.id, `${companyName} (Reddit Only)`)
+      
+      // 启动仅 Reddit 的报告生成
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-report`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          reportId: report.id,
+          appName: companyName, // 使用用户输入的公司名称
+          redditOnly: true // 🔑 标识这是仅 Reddit 分析
+        })
+      })
+
+      if (response.ok) {
+        navigate('/dashboard')
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to start Reddit analysis')
+      }
+    } catch (error) {
+      console.error('Error generating Reddit-only report:', error)
+      alert('Error generating Reddit analysis, please try again later')
+    } finally {
+      setIsGenerating(false)
+      setCompanyName('')
+    }
+  }
+
   const features = [
     {
       icon: BarChart3,
@@ -144,7 +181,7 @@ export const LandingPage: React.FC = () => {
   ]
 
   if (isGenerating) {
-    return <LoadingSpinner message={`Generating report for selected apps...`} />
+    return <LoadingSpinner message={`Generating analysis...`} />
   }
 
   return (
@@ -249,7 +286,7 @@ export const LandingPage: React.FC = () => {
               loading={isGenerating}
               className="text-xl px-12 py-6 shadow-2xl shadow-[#2DD4BF]/30"
             >
-              {isGenerating ? 'Generating...' : 'Generate Report'}
+              {isGenerating ? 'Generating...' : 'Generate Analysis'}
             </Button>
           </motion.div>
 
@@ -261,7 +298,7 @@ export const LandingPage: React.FC = () => {
           >
             <p className="text-white/60 text-sm">
               {user 
-                ? 'Enter a company name and we\'ll find related apps for analysis' 
+                ? 'Enter a company name to analyze app reviews and Reddit discussions' 
                 : 'Sign in to start generating reports'
               }
             </p>
@@ -331,7 +368,7 @@ export const LandingPage: React.FC = () => {
                 disabled={isGenerating}
                 loading={isGenerating}
               >
-                {isGenerating ? 'Generating...' : (user ? 'Generate Report Now' : 'Start Free Trial')}
+                {isGenerating ? 'Generating...' : (user ? 'Generate Analysis Now' : 'Start Free Trial')}
               </Button>
             </Card>
           </motion.div>
@@ -352,6 +389,7 @@ export const LandingPage: React.FC = () => {
         onClose={() => setShowAppSelection(false)}
         companyName={companyName}
         onAppsSelected={handleAppsSelected}
+        onRedditOnlySelected={handleRedditOnlySelected}
       />
     </div>
   )
