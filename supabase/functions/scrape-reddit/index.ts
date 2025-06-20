@@ -14,6 +14,7 @@ const REDDIT_USER_AGENT = Deno.env.get('REDDIT_USER_AGENT') || 'ReviewInsight/1.
 interface ScrapeRequest {
   appName: string
   scrapingSessionId?: string
+  maxPosts?: number // 🆕 允许用户指定最大帖子数
 }
 
 interface RedditPost {
@@ -330,13 +331,14 @@ class EnhancedRedditScraper {
   }
 
   // 🚀 主要搜索方法：优先使用 Reddit API
-  async scrapeReddit(appName: string): Promise<RedditPost[]> {
+  async scrapeReddit(appName: string, maxPosts: number = 200): Promise<RedditPost[]> { // 🆕 增加默认最大帖子数
     const allPosts: RedditPost[] = []
     
     console.log(`\n🚀 === ENHANCED REDDIT SCRAPER WITH API ===`)
     console.log(`📱 App Name: "${appName}"`)
     console.log(`🔑 Reddit API: ${REDDIT_CLIENT_ID ? 'Configured' : 'Not configured'}`)
     console.log(`🎯 Using user-provided app name for optimized search`)
+    console.log(`📊 Target max posts: ${maxPosts}`) // 🆕 显示目标帖子数
     console.log(`⏰ Start Time: ${new Date().toISOString()}`)
 
     const searchTerms = this.generateSearchTerms(appName)
@@ -406,13 +408,14 @@ class EnhancedRedditScraper {
       console.error('❌ Pushshift strategy failed:', error.message)
     }
 
-    // 最终处理
+    // 最终处理 - 🆕 使用用户指定的最大帖子数
     console.log(`\n🔧 === FINAL PROCESSING ===`)
-    const uniquePosts = this.enhancedDeduplicationAndFilter(allPosts, appName)
+    const uniquePosts = this.enhancedDeduplicationAndFilter(allPosts, appName, maxPosts)
     
     console.log(`\n🎯 === REDDIT SCRAPING COMPLETED ===`)
     console.log(`📊 Total posts collected: ${allPosts.length}`)
     console.log(`✨ Final unique, relevant posts: ${uniquePosts.length}`)
+    console.log(`🎯 Target was: ${maxPosts} posts`)
     console.log(`🔑 API usage: ${REDDIT_CLIENT_ID ? 'Enabled' : 'Disabled'}`)
     console.log(`⏰ End Time: ${new Date().toISOString()}`)
     
@@ -645,9 +648,10 @@ class EnhancedRedditScraper {
     return score
   }
 
-  // 增强的去重和过滤
-  private enhancedDeduplicationAndFilter(posts: RedditPost[], appName: string): RedditPost[] {
+  // 🆕 增强的去重和过滤 - 支持自定义最大帖子数
+  private enhancedDeduplicationAndFilter(posts: RedditPost[], appName: string, maxPosts: number = 200): RedditPost[] {
     console.log(`🔧 Enhanced deduplication and filtering: ${posts.length} input posts`)
+    console.log(`🎯 Target final posts: ${maxPosts}`)
 
     // 去重
     const seenUrls = new Set<string>()
@@ -667,7 +671,7 @@ class EnhancedRedditScraper {
 
     console.log(`📊 After deduplication: ${uniquePosts.length} posts`)
 
-    // 过滤
+    // 🆕 调整过滤标准以保留更多帖子
     const appNameLower = appName.toLowerCase()
     const appNameWords = appNameLower.split(/\s+/)
     
@@ -675,9 +679,9 @@ class EnhancedRedditScraper {
       const text = post.text.toLowerCase()
       const title = post.title.toLowerCase()
       
-      // 质量过滤
-      if (post.text.length < 50 || post.text.length > 8000) return false
-      if (post.score < -10) return false
+      // 🆕 放宽质量过滤标准
+      if (post.text.length < 30 || post.text.length > 10000) return false // 降低最小长度要求
+      if (post.score < -20) return false // 放宽评分要求
       
       // 内容质量过滤
       if (text.includes('[removed]') || text.includes('[deleted]')) return false
@@ -685,9 +689,9 @@ class EnhancedRedditScraper {
       if (title.includes('daily thread') || title.includes('weekly thread')) return false
       if (post.isStickied) return false // 过滤置顶帖
       
-      // 相关性过滤
+      // 🆕 降低相关性过滤阈值
       const relevanceScore = this.calculateRelevanceScore({ title, text }, appNameLower, appNameWords)
-      if (relevanceScore < 4) return false
+      if (relevanceScore < 2) return false // 从4降低到2
       
       // 垃圾内容过滤
       const spamIndicators = ['click here', 'buy now', 'limited time', 'act fast', 'make money', 'get rich']
@@ -698,16 +702,16 @@ class EnhancedRedditScraper {
 
     console.log(`📊 After enhanced filtering: ${filteredPosts.length} posts`)
 
-    // 最终排序和选择
+    // 🆕 最终排序和选择 - 使用用户指定的最大数量
     const rankedPosts = filteredPosts
       .map(post => ({
         ...post,
         relevanceScore: this.calculateEnhancedRelevanceScore(post, appName)
       }))
       .sort((a, b) => b.relevanceScore - a.relevanceScore)
-      .slice(0, 50) // 前50个最相关的帖子
+      .slice(0, maxPosts) // 🆕 使用用户指定的最大数量
 
-    console.log(`✅ Enhanced processing completed: ${rankedPosts.length} final posts`)
+    console.log(`✅ Enhanced processing completed: ${rankedPosts.length} final posts (target: ${maxPosts})`)
     
     return rankedPosts
   }
@@ -776,7 +780,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { appName, scrapingSessionId }: ScrapeRequest = await req.json()
+    const { appName, scrapingSessionId, maxPosts = 200 }: ScrapeRequest = await req.json() // 🆕 接收 maxPosts 参数
 
     if (!appName) {
       return new Response(
@@ -790,9 +794,10 @@ Deno.serve(async (req) => {
 
     console.log(`🚀 Enhanced Reddit scraping with API for: "${appName}"`)
     console.log(`🔑 Reddit API status: ${REDDIT_CLIENT_ID ? 'Configured' : 'Not configured'}`)
+    console.log(`📊 Target max posts: ${maxPosts}`) // 🆕 显示目标帖子数
 
     const scraper = new EnhancedRedditScraper()
-    const posts = await scraper.scrapeReddit(appName)
+    const posts = await scraper.scrapeReddit(appName, maxPosts) // 🆕 传递 maxPosts 参数
 
     // 保存到数据库
     if (scrapingSessionId && posts.length > 0) {
@@ -823,8 +828,9 @@ Deno.serve(async (req) => {
             gilded: post.gilded,
             is_stickied: post.isStickied,
             relevance_score: (post as any).relevanceScore || 0,
-            scraper_version: 'api_enhanced_v4.0',
-            api_used: REDDIT_CLIENT_ID ? true : false
+            scraper_version: 'api_enhanced_v5.0', // 🆕 更新版本号
+            api_used: REDDIT_CLIENT_ID ? true : false,
+            max_posts_target: maxPosts // 🆕 记录目标帖子数
           }
         }))
 
@@ -854,6 +860,7 @@ Deno.serve(async (req) => {
     // 计算统计信息
     const stats = {
       totalPosts: posts.length,
+      targetMaxPosts: maxPosts, // 🆕 添加目标帖子数
       subreddits: [...new Set(posts.map(p => p.subreddit))],
       averageScore: posts.length > 0 ? Math.round(posts.reduce((sum, p) => sum + p.score, 0) / posts.length) : 0,
       averageRelevanceScore: posts.length > 0 ? Math.round(posts.reduce((sum, p) => sum + ((p as any).relevanceScore || 0), 0) / posts.length) : 0,
@@ -869,11 +876,17 @@ Deno.serve(async (req) => {
         }, {} as Record<string, number>)
       ).sort(([,a], [,b]) => b - a).slice(0, 5),
       apiUsed: REDDIT_CLIENT_ID ? true : false,
-      gildedPosts: posts.filter(p => (p.gilded || 0) > 0).length
+      gildedPosts: posts.filter(p => (p.gilded || 0) > 0).length,
+      filteringStats: { // 🆕 添加过滤统计
+        targetReached: posts.length >= maxPosts * 0.8, // 是否达到目标的80%
+        qualityThreshold: 'relaxed' // 使用了放宽的过滤标准
+      }
     }
 
     console.log(`\n📊 === ENHANCED REDDIT SCRAPING STATISTICS ===`)
     console.log(`✅ Total posts: ${stats.totalPosts}`)
+    console.log(`🎯 Target was: ${stats.targetMaxPosts}`)
+    console.log(`📈 Target achieved: ${((stats.totalPosts / stats.targetMaxPosts) * 100).toFixed(1)}%`) // 🆕 显示达成率
     console.log(`🎯 Average relevance score: ${stats.averageRelevanceScore}`)
     console.log(`📈 Average Reddit score: ${stats.averageScore}`)
     console.log(`🏷️ Subreddits found: ${stats.subreddits.length}`)
@@ -885,10 +898,11 @@ Deno.serve(async (req) => {
       JSON.stringify({ 
         posts,
         stats,
-        message: `Enhanced Reddit scraping completed: ${posts.length} high-quality, relevant posts found using ${stats.apiUsed ? 'Reddit API + fallback methods' : 'fallback methods only'} based on "${appName}"`,
+        message: `Enhanced Reddit scraping completed: ${posts.length} high-quality, relevant posts found (target: ${maxPosts}) using ${stats.apiUsed ? 'Reddit API + fallback methods' : 'fallback methods only'} based on "${appName}"`,
         timestamp: new Date().toISOString(),
-        scraper_version: 'api_enhanced_v4.0',
+        scraper_version: 'api_enhanced_v5.0', // 🆕 更新版本号
         search_optimization: 'user_provided_app_name',
+        filtering_approach: 'relaxed_for_more_data', // 🆕 说明过滤策略
         api_integration: {
           reddit_api_used: stats.apiUsed,
           client_id_configured: REDDIT_CLIENT_ID ? true : false,
@@ -908,7 +922,7 @@ Deno.serve(async (req) => {
         stats: {
           totalPosts: 0,
           errorCount: 1,
-          scraper_version: 'api_enhanced_v4.0',
+          scraper_version: 'api_enhanced_v5.0',
           api_integration: {
             reddit_api_used: false,
             client_id_configured: REDDIT_CLIENT_ID ? true : false,
