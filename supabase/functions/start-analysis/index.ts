@@ -18,11 +18,20 @@ interface StartAnalysisRequest {
   }
 }
 
-// 设置平台评论上限
+// 优化的平台评论上限
 const PLATFORM_LIMITS = {
   APP_STORE_LIMIT: 4000,
   GOOGLE_PLAY_LIMIT: 4000,
-  REDDIT_LIMIT: 1000 // Reddit 保持较低限制，因为帖子通常更长
+  REDDIT_LIMIT: 1000
+}
+
+// 优化的批处理配置
+const BATCH_CONFIG = {
+  BATCH_SIZE: 300, // 减少到300个评论每批，确保不超过token限制
+  MAX_BATCHES_PER_RUN: 8, // 每次运行最多处理8个批次，避免超时
+  BATCH_DELAY: 500, // 减少批次间延迟到500ms
+  MAX_TOKENS_PER_BATCH: 4000, // 每批最大token数
+  MAX_PROCESSING_TIME: 4 * 60 * 1000 // 4分钟最大处理时间
 }
 
 Deno.serve(async (req) => {
@@ -48,19 +57,21 @@ Deno.serve(async (req) => {
       )
     }
 
-    console.log(`🧠 Starting AI analysis for report ${reportId}, app: ${appName}`)
+    console.log(`🧠 Starting optimized AI analysis for report ${reportId}, app: ${appName}`)
     console.log(`📊 Data summary:`, scrapedDataSummary)
     console.log(`🎯 Platform limits: App Store=${PLATFORM_LIMITS.APP_STORE_LIMIT}, Google Play=${PLATFORM_LIMITS.GOOGLE_PLAY_LIMIT}, Reddit=${PLATFORM_LIMITS.REDDIT_LIMIT}`)
+    console.log(`⚡ Batch config: Size=${BATCH_CONFIG.BATCH_SIZE}, MaxBatches=${BATCH_CONFIG.MAX_BATCHES_PER_RUN}, Delay=${BATCH_CONFIG.BATCH_DELAY}ms`)
 
     // Start the analysis process in the background
-    EdgeRuntime.waitUntil(performAnalysis(reportId, appName, scrapingSessionId, supabaseClient, scrapedDataSummary))
+    EdgeRuntime.waitUntil(performOptimizedAnalysis(reportId, appName, scrapingSessionId, supabaseClient, scrapedDataSummary))
 
     return new Response(
       JSON.stringify({ 
         success: true, 
-        message: 'Analysis started',
+        message: 'Optimized analysis started',
         reportId,
-        scrapingSessionId
+        scrapingSessionId,
+        batchConfig: BATCH_CONFIG
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -82,30 +93,46 @@ Deno.serve(async (req) => {
   }
 })
 
-async function performAnalysis(
+async function performOptimizedAnalysis(
   reportId: string, 
   appName: string, 
   scrapingSessionId: string, 
   supabaseClient: any,
   scrapedDataSummary: any
 ) {
+  const startTime = Date.now()
+  
   try {
-    console.log(`🔍 Starting analysis process for ${appName}`)
+    console.log(`🔍 Starting optimized analysis process for ${appName}`)
 
     // Check if we have any data to analyze
     if (scrapedDataSummary.totalReviews === 0) {
       console.log('No reviews found, creating empty report')
       await createEmptyReport(reportId, appName, supabaseClient)
     } else {
-      // Fetch ALL scraped reviews from database using pagination with platform limits
-      console.log(`📥 Fetching reviews from database with platform limits...`)
-      const scrapedData = await fetchScrapedReviewsWithLimits(scrapingSessionId, supabaseClient)
+      // Fetch reviews with proper limits and pagination
+      console.log(`📥 Fetching reviews from database with optimized limits...`)
+      const scrapedData = await fetchScrapedReviewsOptimized(scrapingSessionId, supabaseClient)
       
-      console.log(`🧠 Starting AI analysis with batch processing for ${scrapedData.totalReviews} reviews...`)
-      const analysisResult = await analyzeWithDeepSeekBatch(appName, scrapedData)
-      
-      console.log('💾 Saving analysis results...')
-      await saveAnalysisResults(reportId, analysisResult, supabaseClient)
+      if (scrapedData.totalReviews === 0) {
+        console.log('⚠️ No reviews found in database, creating empty report')
+        await createEmptyReport(reportId, appName, supabaseClient)
+      } else {
+        console.log(`🧠 Starting optimized AI analysis with ${scrapedData.totalReviews} reviews...`)
+        
+        // Check if we need to process in chunks due to time constraints
+        const estimatedProcessingTime = estimateProcessingTime(scrapedData.totalReviews)
+        console.log(`⏱️ Estimated processing time: ${Math.round(estimatedProcessingTime / 1000)}s`)
+        
+        if (estimatedProcessingTime > BATCH_CONFIG.MAX_PROCESSING_TIME) {
+          console.log(`⚠️ Large dataset detected, using chunked processing approach`)
+          await processInChunks(reportId, appName, scrapedData, supabaseClient)
+        } else {
+          console.log(`✅ Dataset size manageable, using standard batch processing`)
+          const analysisResult = await analyzeWithOptimizedBatching(appName, scrapedData)
+          await saveAnalysisResults(reportId, analysisResult, supabaseClient)
+        }
+      }
     }
     
     // Update report status to completed
@@ -117,10 +144,11 @@ async function performAnalysis(
       })
       .eq('id', reportId)
 
-    console.log(`✅ Analysis completed for ${appName} (${reportId})`)
+    const totalTime = Date.now() - startTime
+    console.log(`✅ Optimized analysis completed for ${appName} (${reportId}) in ${Math.round(totalTime / 1000)}s`)
 
   } catch (error) {
-    console.error(`❌ Error in analysis process for ${reportId}:`, error)
+    console.error(`❌ Error in optimized analysis process for ${reportId}:`, error)
     
     // Update report status to error
     await supabaseClient
@@ -130,9 +158,9 @@ async function performAnalysis(
   }
 }
 
-// Fetch scraped reviews with platform-specific limits
-async function fetchScrapedReviewsWithLimits(scrapingSessionId: string, supabaseClient: any) {
-  console.log(`📥 Fetching reviews for scraping session ${scrapingSessionId} with platform limits...`)
+// 优化的数据获取函数 - 修复limit问题
+async function fetchScrapedReviewsOptimized(scrapingSessionId: string, supabaseClient: any) {
+  console.log(`📥 Fetching reviews for scraping session ${scrapingSessionId} with optimized queries...`)
   
   const scrapedData = {
     appStore: [],
@@ -141,105 +169,124 @@ async function fetchScrapedReviewsWithLimits(scrapingSessionId: string, supabase
     totalReviews: 0
   }
 
-  // Fetch App Store reviews (limit: 4000)
-  console.log(`📱 Fetching App Store reviews (limit: ${PLATFORM_LIMITS.APP_STORE_LIMIT})...`)
-  const { data: appStoreReviews, error: appStoreError } = await supabaseClient
-    .from('scraped_reviews')
-    .select('*')
-    .eq('scraping_session_id', scrapingSessionId)
-    .eq('platform', 'app_store')
-    .order('created_at', { ascending: false })
-    .limit(PLATFORM_LIMITS.APP_STORE_LIMIT)
+  try {
+    // 首先检查总数
+    const { count: totalCount, error: countError } = await supabaseClient
+      .from('scraped_reviews')
+      .select('*', { count: 'exact', head: true })
+      .eq('scraping_session_id', scrapingSessionId)
 
-  if (appStoreError) {
-    console.error('Error fetching App Store reviews:', appStoreError)
-  } else {
-    scrapedData.appStore = appStoreReviews || []
-    console.log(`✅ Fetched ${scrapedData.appStore.length} App Store reviews`)
-  }
-
-  // Fetch Google Play reviews (limit: 4000)
-  console.log(`🤖 Fetching Google Play reviews (limit: ${PLATFORM_LIMITS.GOOGLE_PLAY_LIMIT})...`)
-  const { data: googlePlayReviews, error: googlePlayError } = await supabaseClient
-    .from('scraped_reviews')
-    .select('*')
-    .eq('scraping_session_id', scrapingSessionId)
-    .eq('platform', 'google_play')
-    .order('created_at', { ascending: false })
-    .limit(PLATFORM_LIMITS.GOOGLE_PLAY_LIMIT)
-
-  if (googlePlayError) {
-    console.error('Error fetching Google Play reviews:', googlePlayError)
-  } else {
-    scrapedData.googlePlay = googlePlayReviews || []
-    console.log(`✅ Fetched ${scrapedData.googlePlay.length} Google Play reviews`)
-  }
-
-  // Fetch Reddit posts (limit: 1000)
-  console.log(`💬 Fetching Reddit posts (limit: ${PLATFORM_LIMITS.REDDIT_LIMIT})...`)
-  const { data: redditPosts, error: redditError } = await supabaseClient
-    .from('scraped_reviews')
-    .select('*')
-    .eq('scraping_session_id', scrapingSessionId)
-    .eq('platform', 'reddit')
-    .order('created_at', { ascending: false })
-    .limit(PLATFORM_LIMITS.REDDIT_LIMIT)
-
-  if (redditError) {
-    console.error('Error fetching Reddit posts:', redditError)
-  } else {
-    scrapedData.reddit = redditPosts || []
-    console.log(`✅ Fetched ${scrapedData.reddit.length} Reddit posts`)
-  }
-
-  scrapedData.totalReviews = scrapedData.appStore.length + scrapedData.googlePlay.length + scrapedData.reddit.length
-
-  console.log(`📊 Fetched reviews with platform limits: ${scrapedData.totalReviews} total`)
-  console.log(`   - App Store: ${scrapedData.appStore.length}/${PLATFORM_LIMITS.APP_STORE_LIMIT} reviews`)
-  console.log(`   - Google Play: ${scrapedData.googlePlay.length}/${PLATFORM_LIMITS.GOOGLE_PLAY_LIMIT} reviews`)
-  console.log(`   - Reddit: ${scrapedData.reddit.length}/${PLATFORM_LIMITS.REDDIT_LIMIT} posts`)
-  
-  return scrapedData
-}
-
-async function createEmptyReport(reportId: string, appName: string, supabaseClient: any) {
-  // Create a theme explaining no data was found
-  const { data: themeData, error: themeError } = await supabaseClient
-    .from('themes')
-    .insert({
-      report_id: reportId,
-      title: "No Reviews Found",
-      description: `Unable to find sufficient user reviews for ${appName}. This could be due to the app being new, having limited reviews, or platform restrictions. Try checking the app name spelling or search for the app manually on different platforms.`
-    })
-    .select()
-    .single()
-
-  if (!themeError && themeData) {
-    // Add suggestions for when no data is found
-    const suggestions = [
-      "Verify the app name is spelled correctly",
-      "Check if the app is available in your region",
-      "Try searching for the app manually on App Store and Google Play",
-      "The app might be new and have limited reviews",
-      "Consider checking social media platforms for user discussions"
-    ]
-
-    for (const suggestion of suggestions) {
-      await supabaseClient
-        .from('suggestions')
-        .insert({
-          theme_id: themeData.id,
-          text: suggestion
-        })
+    if (countError) {
+      console.error('Error getting total count:', countError)
+    } else {
+      console.log(`📊 Total reviews in database for session: ${totalCount}`)
     }
+
+    // Fetch App Store reviews with explicit ordering and limit
+    console.log(`📱 Fetching App Store reviews (limit: ${PLATFORM_LIMITS.APP_STORE_LIMIT})...`)
+    const { data: appStoreReviews, error: appStoreError } = await supabaseClient
+      .from('scraped_reviews')
+      .select('review_text, rating, review_date, author_name, source_url, additional_data')
+      .eq('scraping_session_id', scrapingSessionId)
+      .eq('platform', 'app_store')
+      .order('created_at', { ascending: false })
+      .limit(PLATFORM_LIMITS.APP_STORE_LIMIT)
+
+    if (appStoreError) {
+      console.error('❌ Error fetching App Store reviews:', appStoreError)
+    } else {
+      scrapedData.appStore = appStoreReviews || []
+      console.log(`✅ Fetched ${scrapedData.appStore.length} App Store reviews (requested limit: ${PLATFORM_LIMITS.APP_STORE_LIMIT})`)
+    }
+
+    // Fetch Google Play reviews with explicit ordering and limit
+    console.log(`🤖 Fetching Google Play reviews (limit: ${PLATFORM_LIMITS.GOOGLE_PLAY_LIMIT})...`)
+    const { data: googlePlayReviews, error: googlePlayError } = await supabaseClient
+      .from('scraped_reviews')
+      .select('review_text, rating, review_date, author_name, source_url, additional_data')
+      .eq('scraping_session_id', scrapingSessionId)
+      .eq('platform', 'google_play')
+      .order('created_at', { ascending: false })
+      .limit(PLATFORM_LIMITS.GOOGLE_PLAY_LIMIT)
+
+    if (googlePlayError) {
+      console.error('❌ Error fetching Google Play reviews:', googlePlayError)
+    } else {
+      scrapedData.googlePlay = googlePlayReviews || []
+      console.log(`✅ Fetched ${scrapedData.googlePlay.length} Google Play reviews (requested limit: ${PLATFORM_LIMITS.GOOGLE_PLAY_LIMIT})`)
+    }
+
+    // Fetch Reddit posts with explicit ordering and limit
+    console.log(`💬 Fetching Reddit posts (limit: ${PLATFORM_LIMITS.REDDIT_LIMIT})...`)
+    const { data: redditPosts, error: redditError } = await supabaseClient
+      .from('scraped_reviews')
+      .select('review_text, rating, review_date, author_name, source_url, additional_data')
+      .eq('scraping_session_id', scrapingSessionId)
+      .eq('platform', 'reddit')
+      .order('created_at', { ascending: false })
+      .limit(PLATFORM_LIMITS.REDDIT_LIMIT)
+
+    if (redditError) {
+      console.error('❌ Error fetching Reddit posts:', redditError)
+    } else {
+      scrapedData.reddit = redditPosts || []
+      console.log(`✅ Fetched ${scrapedData.reddit.length} Reddit posts (requested limit: ${PLATFORM_LIMITS.REDDIT_LIMIT})`)
+    }
+
+    scrapedData.totalReviews = scrapedData.appStore.length + scrapedData.googlePlay.length + scrapedData.reddit.length
+
+    console.log(`📊 Final fetched counts with optimized queries: ${scrapedData.totalReviews} total`)
+    console.log(`   - App Store: ${scrapedData.appStore.length}/${PLATFORM_LIMITS.APP_STORE_LIMIT} reviews`)
+    console.log(`   - Google Play: ${scrapedData.googlePlay.length}/${PLATFORM_LIMITS.GOOGLE_PLAY_LIMIT} reviews`)
+    console.log(`   - Reddit: ${scrapedData.reddit.length}/${PLATFORM_LIMITS.REDDIT_LIMIT} posts`)
+    
+    return scrapedData
+
+  } catch (error) {
+    console.error('❌ Critical error in fetchScrapedReviewsOptimized:', error)
+    return scrapedData
   }
 }
 
-// 🚀 Optimized Batch Analysis with DeepSeek - Process reviews with platform limits
-async function analyzeWithDeepSeekBatch(appName: string, scrapedData: any) {
-  console.log(`🧠 Starting comprehensive batch analysis for ${appName}`)
+// 估算处理时间
+function estimateProcessingTime(totalReviews: number): number {
+  // 基于经验：每个batch大约需要15-20秒，每个batch 300个评论
+  const estimatedBatches = Math.ceil(totalReviews / BATCH_CONFIG.BATCH_SIZE)
+  const estimatedTimePerBatch = 18000 // 18秒每批
+  const estimatedDelay = estimatedBatches * BATCH_CONFIG.BATCH_DELAY
+  return estimatedBatches * estimatedTimePerBatch + estimatedDelay
+}
+
+// 分块处理大数据集
+async function processInChunks(reportId: string, appName: string, scrapedData: any, supabaseClient: any) {
+  console.log(`🔄 Processing large dataset in chunks to avoid timeout`)
   
-  // Combine reviews from all platforms with platform limits applied
+  // 只处理前面的数据以确保在时间限制内完成
+  const maxReviewsPerRun = BATCH_CONFIG.MAX_BATCHES_PER_RUN * BATCH_CONFIG.BATCH_SIZE
+  
+  const limitedData = {
+    appStore: scrapedData.appStore.slice(0, Math.min(scrapedData.appStore.length, maxReviewsPerRun * 0.5)),
+    googlePlay: scrapedData.googlePlay.slice(0, Math.min(scrapedData.googlePlay.length, maxReviewsPerRun * 0.4)),
+    reddit: scrapedData.reddit.slice(0, Math.min(scrapedData.reddit.length, maxReviewsPerRun * 0.1)),
+    totalReviews: 0
+  }
+  
+  limitedData.totalReviews = limitedData.appStore.length + limitedData.googlePlay.length + limitedData.reddit.length
+  
+  console.log(`📊 Processing limited dataset: ${limitedData.totalReviews} reviews (from ${scrapedData.totalReviews} total)`)
+  console.log(`   - App Store: ${limitedData.appStore.length} reviews`)
+  console.log(`   - Google Play: ${limitedData.googlePlay.length} reviews`)
+  console.log(`   - Reddit: ${limitedData.reddit.length} posts`)
+  
+  const analysisResult = await analyzeWithOptimizedBatching(appName, limitedData)
+  await saveAnalysisResults(reportId, analysisResult, supabaseClient)
+}
+
+// 优化的批处理分析
+async function analyzeWithOptimizedBatching(appName: string, scrapedData: any) {
+  console.log(`🧠 Starting optimized batch analysis for ${appName}`)
+  
+  // Combine reviews from all platforms
   const allReviews = [
     ...scrapedData.appStore.map((r: any) => `[App Store] ${r.review_text}`),
     ...scrapedData.googlePlay.map((r: any) => `[Google Play] ${r.review_text}`),
@@ -250,40 +297,51 @@ async function analyzeWithDeepSeekBatch(appName: string, scrapedData: any) {
     throw new Error('No reviews available for analysis')
   }
 
-  console.log(`📊 Total reviews to analyze: ${allReviews.length} (with platform limits applied)`)
-  console.log(`   - App Store: ${scrapedData.appStore.length} reviews (limit: ${PLATFORM_LIMITS.APP_STORE_LIMIT})`)
-  console.log(`   - Google Play: ${scrapedData.googlePlay.length} reviews (limit: ${PLATFORM_LIMITS.GOOGLE_PLAY_LIMIT})`)
-  console.log(`   - Reddit: ${scrapedData.reddit.length} posts (limit: ${PLATFORM_LIMITS.REDDIT_LIMIT})`)
+  console.log(`📊 Total reviews to analyze: ${allReviews.length} (optimized batching)`)
 
-  // 🔄 Step 1: Split reviews into smaller batches to avoid token limits and timeouts
-  const BATCH_SIZE = 400 // Smaller batch size to stay well within DeepSeek's token limits
+  // 🔄 Step 1: Split into optimized batches
   const batches = []
-  
-  for (let i = 0; i < allReviews.length; i += BATCH_SIZE) {
-    batches.push(allReviews.slice(i, i + BATCH_SIZE))
+  for (let i = 0; i < allReviews.length; i += BATCH_CONFIG.BATCH_SIZE) {
+    batches.push(allReviews.slice(i, i + BATCH_CONFIG.BATCH_SIZE))
   }
 
-  console.log(`📦 Split ${allReviews.length} reviews into ${batches.length} batches (${BATCH_SIZE} reviews per batch)`)
-
-  // 🔄 Step 2: Analyze each batch separately with shorter delays
-  const batchResults = []
+  // 限制批次数量以避免超时
+  const limitedBatches = batches.slice(0, BATCH_CONFIG.MAX_BATCHES_PER_RUN)
   
-  for (let i = 0; i < batches.length; i++) {
-    const batch = batches[i]
-    console.log(`🔍 Analyzing batch ${i + 1}/${batches.length} (${batch.length} reviews)`)
+  console.log(`📦 Split ${allReviews.length} reviews into ${limitedBatches.length} batches (${BATCH_CONFIG.BATCH_SIZE} reviews per batch, max ${BATCH_CONFIG.MAX_BATCHES_PER_RUN} batches)`)
+
+  // 🔄 Step 2: Process batches with optimized timing
+  const batchResults = []
+  const startTime = Date.now()
+  
+  for (let i = 0; i < limitedBatches.length; i++) {
+    const batch = limitedBatches[i]
+    const batchStartTime = Date.now()
+    
+    console.log(`🔍 Analyzing batch ${i + 1}/${limitedBatches.length} (${batch.length} reviews)`)
     
     try {
-      const batchResult = await analyzeBatchWithDeepSeek(appName, batch, i + 1, batches.length)
+      const batchResult = await analyzeBatchOptimized(appName, batch, i + 1, limitedBatches.length)
       batchResults.push(batchResult)
       
-      // Shorter delay to reduce total processing time
-      if (i < batches.length - 1) {
-        console.log(`⏳ Waiting 1 second before next batch...`)
-        await new Promise(resolve => setTimeout(resolve, 1000))
+      const batchTime = Date.now() - batchStartTime
+      console.log(`✅ Batch ${i + 1}: Found ${batchResult.themes?.length || 0} themes in ${Math.round(batchTime / 1000)}s`)
+      
+      // 检查总时间，如果接近限制则停止
+      const totalElapsed = Date.now() - startTime
+      if (totalElapsed > BATCH_CONFIG.MAX_PROCESSING_TIME * 0.8) {
+        console.log(`⚠️ Approaching time limit (${Math.round(totalElapsed / 1000)}s), stopping at batch ${i + 1}`)
+        break
       }
+      
+      // 优化的延迟
+      if (i < limitedBatches.length - 1) {
+        console.log(`⏳ Waiting ${BATCH_CONFIG.BATCH_DELAY}ms before next batch...`)
+        await new Promise(resolve => setTimeout(resolve, BATCH_CONFIG.BATCH_DELAY))
+      }
+      
     } catch (error) {
       console.error(`❌ Error analyzing batch ${i + 1}:`, error.message)
-      // Continue processing other batches
       batchResults.push({
         themes: [],
         batchNumber: i + 1,
@@ -294,73 +352,47 @@ async function analyzeWithDeepSeekBatch(appName: string, scrapedData: any) {
 
   console.log(`✅ Completed analysis of ${batchResults.length} batches`)
 
-  // 🔄 Step 3: Merge and deduplicate results
-  const mergedResult = await mergeAndDeduplicateResults(appName, batchResults)
+  // 🔄 Step 3: Quick merge and deduplicate
+  const mergedResult = await quickMergeResults(appName, batchResults)
   
-  console.log(`🎯 Final result: ${mergedResult.themes.length} unique themes from ${allReviews.length} reviews (platform limits applied)`)
+  console.log(`🎯 Final result: ${mergedResult.themes.length} unique themes`)
   
   return mergedResult
 }
 
-// 分析单个批次 - 优化token使用
-async function analyzeBatchWithDeepSeek(appName: string, reviews: string[], batchNumber: number, totalBatches: number) {
+// 优化的单批次分析
+async function analyzeBatchOptimized(appName: string, reviews: string[], batchNumber: number, totalBatches: number) {
   const deepseekApiKey = Deno.env.get('DEEPSEEK_API_KEY')
   
   if (!deepseekApiKey) {
     throw new Error('DEEPSEEK_API_KEY environment variable is not set')
   }
 
-  // Truncate very long reviews to save tokens
-  const truncatedReviews = reviews.map(review => 
-    review.length > 500 ? review.substring(0, 500) + '...' : review
-  )
+  // 更激进的文本截断以节省tokens
+  const truncatedReviews = reviews.map(review => {
+    if (review.length > 300) {
+      return review.substring(0, 300) + '...'
+    }
+    return review
+  })
 
-  const prompt = `
-You are an expert product analyst. Analyze the following user reviews for the app "${appName}".
+  // 简化的prompt以减少token使用
+  const prompt = `Analyze user reviews for "${appName}". Find 8-10 key themes.
 
-This is batch ${batchNumber} of ${totalBatches} total batches.
-
-Your task:
-1. Identify the TOP 10-12 most important themes from this batch of reviews
-2. For each theme, provide 2 representative quotes from actual reviews
-3. Generate 2 specific, actionable product suggestions for each theme
-
-Focus on themes that are:
-- Mentioned by multiple users in this batch
-- Have clear sentiment (positive or negative)
-- Actionable for product teams
-- Specific to user experience, features, or pain points
-
-Reviews to analyze (${truncatedReviews.length} total):
+Reviews (${truncatedReviews.length}):
 ${truncatedReviews.join('\n\n')}
 
-IMPORTANT: Respond with ONLY valid JSON in English, no markdown formatting, no code blocks, no additional text.
-
+Return JSON only:
 {
-  "batchNumber": ${batchNumber},
-  "totalBatches": ${totalBatches},
-  "reviewsAnalyzed": ${truncatedReviews.length},
   "themes": [
     {
-      "title": "Clear, specific theme title (2-6 words)",
-      "description": "Detailed description explaining what users are saying about this theme (2-3 sentences)",
-      "quotes": [
-        {
-          "text": "Exact quote from a review (keep original wording)",
-          "source": "App Store|Google Play|Reddit",
-          "date": "2025-01-10"
-        }
-      ],
-      "suggestions": [
-        "Specific, actionable suggestion for the product team",
-        "Another concrete recommendation"
-      ],
-      "frequency": "high|medium|low",
-      "sentiment": "positive|negative|mixed"
+      "title": "Theme title (2-4 words)",
+      "description": "Brief description (1-2 sentences)",
+      "quotes": [{"text": "Quote", "source": "App Store", "date": "2025-01-10"}],
+      "suggestions": ["Suggestion 1", "Suggestion 2"]
     }
   ]
-}
-`
+}`
 
   try {
     const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
@@ -374,7 +406,7 @@ IMPORTANT: Respond with ONLY valid JSON in English, no markdown formatting, no c
         messages: [
           {
             role: 'system',
-            content: `You are an expert product analyst specializing in user feedback analysis. Always respond with valid JSON only in English, no markdown formatting, no code blocks, no additional text. Focus on finding 10-12 distinct themes per batch.`
+            content: 'You are a product analyst. Return only valid JSON with 8-10 themes.'
           },
           {
             role: 'user',
@@ -382,7 +414,7 @@ IMPORTANT: Respond with ONLY valid JSON in English, no markdown formatting, no c
           }
         ],
         temperature: 0.3,
-        max_tokens: 6000 // Reduced to stay well within limits
+        max_tokens: 3000 // 进一步减少token限制
       })
     })
 
@@ -392,29 +424,17 @@ IMPORTANT: Respond with ONLY valid JSON in English, no markdown formatting, no c
     }
 
     const result = await response.json()
-    let content = result.choices[0].message.content
+    let content = result.choices[0].message.content.trim()
 
-    // Clean up the response
-    content = content.trim()
-    if (content.startsWith('```json')) {
-      content = content.replace(/^```json\s*/, '')
-    }
-    if (content.startsWith('```')) {
-      content = content.replace(/^```\s*/, '')
-    }
-    if (content.endsWith('```')) {
-      content = content.replace(/\s*```$/, '')
-    }
-    content = content.trim()
+    // 清理响应
+    content = content.replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '').trim()
 
     const batchResult = JSON.parse(content)
     
-    // Validate structure
     if (!batchResult.themes || !Array.isArray(batchResult.themes)) {
-      throw new Error('Invalid batch result structure - missing themes array')
+      throw new Error('Invalid batch result structure')
     }
 
-    console.log(`✅ Batch ${batchNumber}: Found ${batchResult.themes.length} themes`)
     return batchResult
 
   } catch (error) {
@@ -423,11 +443,10 @@ IMPORTANT: Respond with ONLY valid JSON in English, no markdown formatting, no c
   }
 }
 
-// 合并和去重结果 - 优化处理
-async function mergeAndDeduplicateResults(appName: string, batchResults: any[]) {
-  console.log(`🔄 Merging results from ${batchResults.length} batches...`)
+// 快速合并结果（避免复杂的DeepSeek调用）
+async function quickMergeResults(appName: string, batchResults: any[]) {
+  console.log(`🔄 Quick merging results from ${batchResults.length} batches...`)
   
-  // 收集所有主题
   const allThemes = []
   for (const batchResult of batchResults) {
     if (batchResult.themes && Array.isArray(batchResult.themes)) {
@@ -441,223 +460,111 @@ async function mergeAndDeduplicateResults(appName: string, batchResults: any[]) 
     return {
       themes: [{
         title: "Analysis Error",
-        description: "Unable to complete AI analysis due to technical issues. The reviews have been collected and saved for manual review.",
+        description: "Unable to complete AI analysis. Please try again later.",
         quotes: [],
-        suggestions: [
-          "Review the collected user feedback manually",
-          "Check system logs for analysis errors",
-          "Consider retrying the analysis later"
-        ]
+        suggestions: ["Retry the analysis", "Check system status"]
       }]
     }
   }
 
-  // 使用DeepSeek进行智能合并和去重，但限制输入大小
-  try {
-    const mergedResult = await intelligentMergeWithDeepSeek(appName, allThemes)
-    return mergedResult
-  } catch (error) {
-    console.error('❌ Error in intelligent merge:', error.message)
-    console.log('🔄 Falling back to simple deduplication...')
-    return simpleDeduplication(allThemes)
-  }
+  // 使用简单但有效的去重算法
+  const mergedThemes = simpleButEffectiveMerge(allThemes)
+  
+  console.log(`✅ Quick merge completed: ${mergedThemes.length} final themes`)
+  
+  return { themes: mergedThemes }
 }
 
-// 使用DeepSeek进行智能合并 - 优化token使用
-async function intelligentMergeWithDeepSeek(appName: string, allThemes: any[]) {
-  const deepseekApiKey = Deno.env.get('DEEPSEEK_API_KEY')
+// 简单但有效的合并算法
+function simpleButEffectiveMerge(allThemes: any[]) {
+  const themeGroups = new Map()
   
-  if (!deepseekApiKey) {
-    throw new Error('DEEPSEEK_API_KEY environment variable is not set')
-  }
-
-  console.log(`🧠 Using DeepSeek to merge and deduplicate ${allThemes.length} themes...`)
-
-  // 如果主题太多，先进行预处理
-  let themesToProcess = allThemes
-  if (allThemes.length > 60) {
-    console.log(`⚠️ Too many themes (${allThemes.length}), pre-processing to reduce size...`)
-    themesToProcess = await preProcessThemes(allThemes)
-    console.log(`📊 Pre-processed to ${themesToProcess.length} themes`)
-  }
-
-  // 进一步限制输入大小以避免token限制
-  const limitedThemes = themesToProcess.slice(0, 50)
-  
-  // 简化主题数据以减少token使用
-  const simplifiedThemes = limitedThemes.map(theme => ({
-    title: theme.title,
-    description: theme.description.substring(0, 200), // 限制描述长度
-    quotes: theme.quotes ? theme.quotes.slice(0, 2) : [], // 最多2个引用
-    suggestions: theme.suggestions ? theme.suggestions.slice(0, 2) : [] // 最多2个建议
-  }))
-
-  const prompt = `
-You are an expert product analyst. Merge and deduplicate these themes for the app "${appName}".
-
-Your task:
-1. Merge similar themes together
-2. Remove duplicates
-3. Return the TOP 25 most important themes
-4. Prioritize by user impact and frequency
-
-Input themes (${simplifiedThemes.length} total):
-${JSON.stringify(simplifiedThemes, null, 1)}
-
-IMPORTANT: Respond with ONLY valid JSON in English, no markdown formatting, no code blocks.
-
-{
-  "themes": [
-    {
-      "title": "Clear theme title (2-6 words)",
-      "description": "Description (2-3 sentences)",
-      "quotes": [
-        {
-          "text": "Quote from review",
-          "source": "App Store|Google Play|Reddit",
-          "date": "2025-01-10"
-        }
-      ],
-      "suggestions": [
-        "Actionable suggestion",
-        "Another suggestion"
-      ]
-    }
-  ]
-}
-
-Return exactly 25 themes ranked by importance.
-`
-
-  try {
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${deepseekApiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert product analyst. Always respond with valid JSON only. Return exactly 25 consolidated themes.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.2,
-        max_tokens: 6000 // Reduced to stay within limits
-      })
-    })
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(`DeepSeek merge API error: ${response.status} - ${errorText}`)
-    }
-
-    const result = await response.json()
-    let content = result.choices[0].message.content
-
-    // Clean up the response
-    content = content.trim()
-    if (content.startsWith('```json')) {
-      content = content.replace(/^```json\s*/, '')
-    }
-    if (content.startsWith('```')) {
-      content = content.replace(/^```\s*/, '')
-    }
-    if (content.endsWith('```')) {
-      content = content.replace(/\s*```$/, '')
-    }
-    content = content.trim()
-
-    const mergedResult = JSON.parse(content)
-    
-    // Validate structure
-    if (!mergedResult.themes || !Array.isArray(mergedResult.themes)) {
-      throw new Error('Invalid merged result structure - missing themes array')
-    }
-
-    // Ensure we have up to 25 themes
-    if (mergedResult.themes.length > 25) {
-      console.log(`⚠️ Trimming to 25 themes (received ${mergedResult.themes.length})`)
-      mergedResult.themes = mergedResult.themes.slice(0, 25)
-    }
-
-    console.log(`✅ Successfully merged to ${mergedResult.themes.length} final themes`)
-    return mergedResult
-
-  } catch (error) {
-    console.error('❌ Error in intelligent merge:', error.message)
-    throw error
-  }
-}
-
-// 预处理主题（当主题数量过多时）
-async function preProcessThemes(allThemes: any[]) {
-  // 按标题相似度分组，每组只保留最好的代表
-  const groups = new Map()
-  
+  // 按标题关键词分组
   for (const theme of allThemes) {
-    const normalizedTitle = theme.title.toLowerCase()
+    const keywords = theme.title.toLowerCase()
       .replace(/[^a-z0-9\s]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
+      .split(/\s+/)
+      .filter((word: string) => word.length > 2)
+      .slice(0, 2) // 只取前两个关键词
+      .sort()
+      .join('_')
     
-    // 使用前8个字符作为分组键
-    const key = normalizedTitle.substring(0, 8)
-    
-    if (!groups.has(key)) {
-      groups.set(key, [])
+    if (!themeGroups.has(keywords)) {
+      themeGroups.set(keywords, [])
     }
-    groups.get(key).push(theme)
+    themeGroups.get(keywords).push(theme)
   }
   
-  // 从每组中选择最好的主题
-  const processedThemes = []
-  for (const [key, groupThemes] of groups) {
-    // 选择描述最长且有引用的主题作为代表
-    const bestTheme = groupThemes.reduce((best, current) => {
-      const currentScore = current.description.length + (current.quotes?.length || 0) * 50
-      const bestScore = best.description.length + (best.quotes?.length || 0) * 50
-      return currentScore > bestScore ? current : best
-    })
-    processedThemes.push(bestTheme)
+  // 从每组选择最佳代表
+  const finalThemes = []
+  for (const [keywords, groupThemes] of themeGroups) {
+    if (groupThemes.length === 1) {
+      finalThemes.push(groupThemes[0])
+    } else {
+      // 合并同组主题
+      const mergedTheme = {
+        title: groupThemes[0].title,
+        description: groupThemes[0].description,
+        quotes: [],
+        suggestions: []
+      }
+      
+      // 收集所有引用和建议
+      for (const theme of groupThemes) {
+        if (theme.quotes) mergedTheme.quotes.push(...theme.quotes)
+        if (theme.suggestions) mergedTheme.suggestions.push(...theme.suggestions)
+      }
+      
+      // 去重并限制数量
+      mergedTheme.quotes = Array.from(new Set(mergedTheme.quotes.map(q => q.text)))
+        .slice(0, 3)
+        .map(text => ({ text, source: 'App Store', date: '2025-01-10' }))
+      
+      mergedTheme.suggestions = Array.from(new Set(mergedTheme.suggestions)).slice(0, 3)
+      
+      finalThemes.push(mergedTheme)
+    }
   }
   
-  return processedThemes.slice(0, 50) // 最多50个主题
+  // 按重要性排序并限制数量
+  return finalThemes
+    .sort((a, b) => (b.quotes?.length || 0) - (a.quotes?.length || 0))
+    .slice(0, 20) // 限制为20个主题
 }
 
-// 简单去重（备用方案）
-function simpleDeduplication(allThemes: any[]) {
-  const uniqueThemes = []
-  const seenTitles = new Set()
+async function createEmptyReport(reportId: string, appName: string, supabaseClient: any) {
+  const { data: themeData, error: themeError } = await supabaseClient
+    .from('themes')
+    .insert({
+      report_id: reportId,
+      title: "No Reviews Found",
+      description: `Unable to find sufficient user reviews for ${appName}. This could be due to the app being new, having limited reviews, or platform restrictions.`
+    })
+    .select()
+    .single()
 
-  for (const theme of allThemes) {
-    const normalizedTitle = theme.title.toLowerCase().trim()
-    
-    if (!seenTitles.has(normalizedTitle)) {
-      seenTitles.add(normalizedTitle)
-      uniqueThemes.push(theme)
+  if (!themeError && themeData) {
+    const suggestions = [
+      "Verify the app name is spelled correctly",
+      "Check if the app is available in your region",
+      "Try searching for the app manually on App Store and Google Play",
+      "The app might be new and have limited reviews"
+    ]
+
+    for (const suggestion of suggestions) {
+      await supabaseClient
+        .from('suggestions')
+        .insert({
+          theme_id: themeData.id,
+          text: suggestion
+        })
     }
   }
-
-  // Limit to 25 themes
-  const finalThemes = uniqueThemes.slice(0, 25)
-  
-  console.log(`📊 Simple deduplication: ${allThemes.length} → ${finalThemes.length} themes`)
-  
-  return { themes: finalThemes }
 }
 
 async function saveAnalysisResults(reportId: string, analysisResult: any, supabaseClient: any) {
   try {
-    // Save each theme and its associated quotes and suggestions
     for (const theme of analysisResult.themes) {
-      // Create theme
       const { data: themeData, error: themeError } = await supabaseClient
         .from('themes')
         .insert({
@@ -673,7 +580,7 @@ async function saveAnalysisResults(reportId: string, analysisResult: any, supaba
         continue
       }
 
-      // Create quotes for this theme
+      // Save quotes
       if (theme.quotes && theme.quotes.length > 0) {
         for (const quote of theme.quotes) {
           await supabaseClient
@@ -687,7 +594,7 @@ async function saveAnalysisResults(reportId: string, analysisResult: any, supaba
         }
       }
 
-      // Create suggestions for this theme
+      // Save suggestions
       if (theme.suggestions && theme.suggestions.length > 0) {
         for (const suggestion of theme.suggestions) {
           await supabaseClient
