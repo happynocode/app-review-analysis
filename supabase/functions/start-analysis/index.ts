@@ -89,9 +89,9 @@ async function performAnalysis(
       console.log('No reviews found, creating empty report')
       await createEmptyReport(reportId, appName, supabaseClient)
     } else {
-      // Fetch ALL scraped reviews from database - NO LIMITS
+      // Fetch ALL scraped reviews from database using pagination
       console.log(`📥 Fetching ALL ${scrapedDataSummary.totalReviews} reviews from database...`)
-      const scrapedData = await fetchAllScrapedReviews(scrapingSessionId, supabaseClient)
+      const scrapedData = await fetchAllScrapedReviewsPaginated(scrapingSessionId, supabaseClient)
       
       console.log(`🧠 Starting AI analysis with batch processing for ${scrapedData.totalReviews} reviews...`)
       const analysisResult = await analyzeWithDeepSeekBatch(appName, scrapedData)
@@ -122,27 +122,56 @@ async function performAnalysis(
   }
 }
 
-// Fetch ALL scraped reviews from database - NO LIMITS
-async function fetchAllScrapedReviews(scrapingSessionId: string, supabaseClient: any) {
+// Fetch ALL scraped reviews using pagination to avoid Supabase limits
+async function fetchAllScrapedReviewsPaginated(scrapingSessionId: string, supabaseClient: any) {
   console.log(`📥 Fetching ALL reviews for scraping session ${scrapingSessionId}...`)
   
-  // Fetch ALL reviews without any limit
-  const { data: reviews, error } = await supabaseClient
-    .from('scraped_reviews')
-    .select('*')
-    .eq('scraping_session_id', scrapingSessionId)
-    .order('created_at', { ascending: false }) // Most recent first
+  const allReviews = []
+  const pageSize = 1000 // Fetch 1000 reviews per page
+  let page = 0
+  let hasMore = true
 
-  if (error) {
-    throw new Error(`Failed to fetch scraped reviews: ${error.message}`)
+  while (hasMore) {
+    const from = page * pageSize
+    const to = from + pageSize - 1
+
+    console.log(`📄 Fetching page ${page + 1} (rows ${from}-${to})...`)
+
+    const { data: reviews, error } = await supabaseClient
+      .from('scraped_reviews')
+      .select('*')
+      .eq('scraping_session_id', scrapingSessionId)
+      .order('created_at', { ascending: false })
+      .range(from, to)
+
+    if (error) {
+      throw new Error(`Failed to fetch scraped reviews page ${page + 1}: ${error.message}`)
+    }
+
+    if (reviews && reviews.length > 0) {
+      allReviews.push(...reviews)
+      console.log(`✅ Page ${page + 1}: Fetched ${reviews.length} reviews (Total: ${allReviews.length})`)
+      
+      // Check if we got a full page (indicating there might be more)
+      hasMore = reviews.length === pageSize
+      page++
+    } else {
+      hasMore = false
+      console.log(`📄 Page ${page + 1}: No more reviews found`)
+    }
+
+    // Small delay to avoid overwhelming the database
+    if (hasMore) {
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
   }
 
   // Organize reviews by platform
   const scrapedData = {
-    appStore: reviews.filter(r => r.platform === 'app_store'),
-    googlePlay: reviews.filter(r => r.platform === 'google_play'),
-    reddit: reviews.filter(r => r.platform === 'reddit'),
-    totalReviews: reviews.length
+    appStore: allReviews.filter(r => r.platform === 'app_store'),
+    googlePlay: allReviews.filter(r => r.platform === 'google_play'),
+    reddit: allReviews.filter(r => r.platform === 'reddit'),
+    totalReviews: allReviews.length
   }
 
   console.log(`📊 Fetched ALL reviews: ${scrapedData.totalReviews} total`)
@@ -186,7 +215,7 @@ async function createEmptyReport(reportId: string, appName: string, supabaseClie
   }
 }
 
-// 🚀 Batch Analysis with DeepSeek - NO LIMITS ON REVIEW COUNT
+// 🚀 Optimized Batch Analysis with DeepSeek - Process ALL reviews with smaller batches
 async function analyzeWithDeepSeekBatch(appName: string, scrapedData: any) {
   console.log(`🧠 Starting comprehensive batch analysis for ${appName}`)
   
@@ -203,8 +232,8 @@ async function analyzeWithDeepSeekBatch(appName: string, scrapedData: any) {
 
   console.log(`📊 Total reviews to analyze: ${allReviews.length} (NO LIMITS APPLIED)`)
 
-  // 🔄 Step 1: Split reviews into batches for API processing
-  const BATCH_SIZE = 800 // Optimized batch size to stay within token limits
+  // 🔄 Step 1: Split reviews into smaller batches to avoid token limits and timeouts
+  const BATCH_SIZE = 400 // Smaller batch size to stay well within DeepSeek's token limits
   const batches = []
   
   for (let i = 0; i < allReviews.length; i += BATCH_SIZE) {
@@ -213,7 +242,7 @@ async function analyzeWithDeepSeekBatch(appName: string, scrapedData: any) {
 
   console.log(`📦 Split ${allReviews.length} reviews into ${batches.length} batches (${BATCH_SIZE} reviews per batch)`)
 
-  // 🔄 Step 2: Analyze each batch separately
+  // 🔄 Step 2: Analyze each batch separately with shorter delays
   const batchResults = []
   
   for (let i = 0; i < batches.length; i++) {
@@ -224,10 +253,10 @@ async function analyzeWithDeepSeekBatch(appName: string, scrapedData: any) {
       const batchResult = await analyzeBatchWithDeepSeek(appName, batch, i + 1, batches.length)
       batchResults.push(batchResult)
       
-      // Add delay to avoid API rate limits
+      // Shorter delay to reduce total processing time
       if (i < batches.length - 1) {
-        console.log(`⏳ Waiting 2 seconds before next batch...`)
-        await new Promise(resolve => setTimeout(resolve, 2000))
+        console.log(`⏳ Waiting 1 second before next batch...`)
+        await new Promise(resolve => setTimeout(resolve, 1000))
       }
     } catch (error) {
       console.error(`❌ Error analyzing batch ${i + 1}:`, error.message)
@@ -250,7 +279,7 @@ async function analyzeWithDeepSeekBatch(appName: string, scrapedData: any) {
   return mergedResult
 }
 
-// 分析单个批次
+// 分析单个批次 - 优化token使用
 async function analyzeBatchWithDeepSeek(appName: string, reviews: string[], batchNumber: number, totalBatches: number) {
   const deepseekApiKey = Deno.env.get('DEEPSEEK_API_KEY')
   
@@ -258,15 +287,20 @@ async function analyzeBatchWithDeepSeek(appName: string, reviews: string[], batc
     throw new Error('DEEPSEEK_API_KEY environment variable is not set')
   }
 
+  // Truncate very long reviews to save tokens
+  const truncatedReviews = reviews.map(review => 
+    review.length > 500 ? review.substring(0, 500) + '...' : review
+  )
+
   const prompt = `
 You are an expert product analyst. Analyze the following user reviews for the app "${appName}".
 
 This is batch ${batchNumber} of ${totalBatches} total batches.
 
 Your task:
-1. Identify the TOP 12-15 most important themes from this batch of reviews
-2. For each theme, provide 2-3 representative quotes from actual reviews
-3. Generate 2-3 specific, actionable product suggestions for each theme
+1. Identify the TOP 10-12 most important themes from this batch of reviews
+2. For each theme, provide 2 representative quotes from actual reviews
+3. Generate 2 specific, actionable product suggestions for each theme
 
 Focus on themes that are:
 - Mentioned by multiple users in this batch
@@ -274,15 +308,15 @@ Focus on themes that are:
 - Actionable for product teams
 - Specific to user experience, features, or pain points
 
-Reviews to analyze (${reviews.length} total):
-${reviews.join('\n\n')}
+Reviews to analyze (${truncatedReviews.length} total):
+${truncatedReviews.join('\n\n')}
 
 IMPORTANT: Respond with ONLY valid JSON in English, no markdown formatting, no code blocks, no additional text.
 
 {
   "batchNumber": ${batchNumber},
   "totalBatches": ${totalBatches},
-  "reviewsAnalyzed": ${reviews.length},
+  "reviewsAnalyzed": ${truncatedReviews.length},
   "themes": [
     {
       "title": "Clear, specific theme title (2-6 words)",
@@ -317,7 +351,7 @@ IMPORTANT: Respond with ONLY valid JSON in English, no markdown formatting, no c
         messages: [
           {
             role: 'system',
-            content: `You are an expert product analyst specializing in user feedback analysis. Always respond with valid JSON only in English, no markdown formatting, no code blocks, no additional text. Focus on finding 12-15 distinct themes per batch.`
+            content: `You are an expert product analyst specializing in user feedback analysis. Always respond with valid JSON only in English, no markdown formatting, no code blocks, no additional text. Focus on finding 10-12 distinct themes per batch.`
           },
           {
             role: 'user',
@@ -325,7 +359,7 @@ IMPORTANT: Respond with ONLY valid JSON in English, no markdown formatting, no c
           }
         ],
         temperature: 0.3,
-        max_tokens: 8000 // Within DeepSeek's limit of 8192
+        max_tokens: 6000 // Reduced to stay well within limits
       })
     })
 
@@ -366,7 +400,7 @@ IMPORTANT: Respond with ONLY valid JSON in English, no markdown formatting, no c
   }
 }
 
-// 合并和去重结果
+// 合并和去重结果 - 优化处理
 async function mergeAndDeduplicateResults(appName: string, batchResults: any[]) {
   console.log(`🔄 Merging results from ${batchResults.length} batches...`)
   
@@ -395,13 +429,18 @@ async function mergeAndDeduplicateResults(appName: string, batchResults: any[]) 
     }
   }
 
-  // 使用DeepSeek进行智能合并和去重
-  const mergedResult = await intelligentMergeWithDeepSeek(appName, allThemes)
-  
-  return mergedResult
+  // 使用DeepSeek进行智能合并和去重，但限制输入大小
+  try {
+    const mergedResult = await intelligentMergeWithDeepSeek(appName, allThemes)
+    return mergedResult
+  } catch (error) {
+    console.error('❌ Error in intelligent merge:', error.message)
+    console.log('🔄 Falling back to simple deduplication...')
+    return simpleDeduplication(allThemes)
+  }
 }
 
-// 使用DeepSeek进行智能合并
+// 使用DeepSeek进行智能合并 - 优化token使用
 async function intelligentMergeWithDeepSeek(appName: string, allThemes: any[]) {
   const deepseekApiKey = Deno.env.get('DEEPSEEK_API_KEY')
   
@@ -411,54 +450,60 @@ async function intelligentMergeWithDeepSeek(appName: string, allThemes: any[]) {
 
   console.log(`🧠 Using DeepSeek to merge and deduplicate ${allThemes.length} themes...`)
 
-  // 如果主题太多，先进行预处理分组
+  // 如果主题太多，先进行预处理
   let themesToProcess = allThemes
-  if (allThemes.length > 100) {
+  if (allThemes.length > 60) {
     console.log(`⚠️ Too many themes (${allThemes.length}), pre-processing to reduce size...`)
     themesToProcess = await preProcessThemes(allThemes)
     console.log(`📊 Pre-processed to ${themesToProcess.length} themes`)
   }
 
+  // 进一步限制输入大小以避免token限制
+  const limitedThemes = themesToProcess.slice(0, 50)
+  
+  // 简化主题数据以减少token使用
+  const simplifiedThemes = limitedThemes.map(theme => ({
+    title: theme.title,
+    description: theme.description.substring(0, 200), // 限制描述长度
+    quotes: theme.quotes ? theme.quotes.slice(0, 2) : [], // 最多2个引用
+    suggestions: theme.suggestions ? theme.suggestions.slice(0, 2) : [] // 最多2个建议
+  }))
+
   const prompt = `
-You are an expert product analyst. You have received multiple theme analyses for the app "${appName}" from different batches of user reviews.
+You are an expert product analyst. Merge and deduplicate these themes for the app "${appName}".
 
-Your task is to merge, deduplicate, and consolidate these themes into the TOP 30 most important themes.
+Your task:
+1. Merge similar themes together
+2. Remove duplicates
+3. Return the TOP 25 most important themes
+4. Prioritize by user impact and frequency
 
-Instructions:
-1. Merge similar themes together (e.g., "App Crashes" and "Stability Issues" should be one theme)
-2. Remove duplicate themes
-3. Prioritize themes by importance, frequency, and user impact
-4. Ensure each final theme is distinct and meaningful
-5. Combine quotes from similar themes (keep the best examples)
-6. Merge suggestions for similar themes
-7. Return exactly 30 themes, ranked by importance and user impact
+Input themes (${simplifiedThemes.length} total):
+${JSON.stringify(simplifiedThemes, null, 1)}
 
-Input themes to merge (${themesToProcess.length} total):
-${JSON.stringify(themesToProcess.slice(0, 80), null, 2)}
-
-IMPORTANT: Respond with ONLY valid JSON in English, no markdown formatting, no code blocks, no additional text.
+IMPORTANT: Respond with ONLY valid JSON in English, no markdown formatting, no code blocks.
 
 {
   "themes": [
     {
-      "title": "Clear, specific theme title (2-6 words)",
-      "description": "Detailed description explaining what users are saying about this theme (2-3 sentences)",
+      "title": "Clear theme title (2-6 words)",
+      "description": "Description (2-3 sentences)",
       "quotes": [
         {
-          "text": "Exact quote from a review (keep original wording)",
+          "text": "Quote from review",
           "source": "App Store|Google Play|Reddit",
           "date": "2025-01-10"
         }
       ],
       "suggestions": [
-        "Specific, actionable suggestion for the product team",
-        "Another concrete recommendation"
+        "Actionable suggestion",
+        "Another suggestion"
       ]
     }
   ]
 }
 
-Make sure to return exactly 30 themes, ranked by importance and user impact.
+Return exactly 25 themes ranked by importance.
 `
 
   try {
@@ -473,15 +518,15 @@ Make sure to return exactly 30 themes, ranked by importance and user impact.
         messages: [
           {
             role: 'system',
-            content: 'You are an expert product analyst specializing in theme consolidation and deduplication. Always respond with valid JSON only in English, no markdown formatting, no code blocks, no additional text. Return exactly 30 consolidated themes ranked by importance.'
+            content: 'You are an expert product analyst. Always respond with valid JSON only. Return exactly 25 consolidated themes.'
           },
           {
             role: 'user',
             content: prompt
           }
         ],
-        temperature: 0.2, // Lower temperature for more consistent merging
-        max_tokens: 8000 // Within DeepSeek's limit
+        temperature: 0.2,
+        max_tokens: 6000 // Reduced to stay within limits
       })
     })
 
@@ -513,10 +558,10 @@ Make sure to return exactly 30 themes, ranked by importance and user impact.
       throw new Error('Invalid merged result structure - missing themes array')
     }
 
-    // Ensure we have up to 30 themes
-    if (mergedResult.themes.length > 30) {
-      console.log(`⚠️ Trimming to 30 themes (received ${mergedResult.themes.length})`)
-      mergedResult.themes = mergedResult.themes.slice(0, 30)
+    // Ensure we have up to 25 themes
+    if (mergedResult.themes.length > 25) {
+      console.log(`⚠️ Trimming to 25 themes (received ${mergedResult.themes.length})`)
+      mergedResult.themes = mergedResult.themes.slice(0, 25)
     }
 
     console.log(`✅ Successfully merged to ${mergedResult.themes.length} final themes`)
@@ -524,16 +569,13 @@ Make sure to return exactly 30 themes, ranked by importance and user impact.
 
   } catch (error) {
     console.error('❌ Error in intelligent merge:', error.message)
-    
-    // Fallback: Simple deduplication by title similarity
-    console.log('🔄 Falling back to simple deduplication...')
-    return simpleDeduplication(allThemes)
+    throw error
   }
 }
 
 // 预处理主题（当主题数量过多时）
 async function preProcessThemes(allThemes: any[]) {
-  // 简单的预处理：按标题相似度分组，每组只保留一个代表
+  // 按标题相似度分组，每组只保留最好的代表
   const groups = new Map()
   
   for (const theme of allThemes) {
@@ -542,7 +584,8 @@ async function preProcessThemes(allThemes: any[]) {
       .replace(/\s+/g, ' ')
       .trim()
     
-    const key = normalizedTitle.substring(0, 10) // 使用前10个字符作为分组键
+    // 使用前8个字符作为分组键
+    const key = normalizedTitle.substring(0, 8)
     
     if (!groups.has(key)) {
       groups.set(key, [])
@@ -553,14 +596,16 @@ async function preProcessThemes(allThemes: any[]) {
   // 从每组中选择最好的主题
   const processedThemes = []
   for (const [key, groupThemes] of groups) {
-    // 选择描述最长的主题作为代表
-    const bestTheme = groupThemes.reduce((best, current) => 
-      current.description.length > best.description.length ? current : best
-    )
+    // 选择描述最长且有引用的主题作为代表
+    const bestTheme = groupThemes.reduce((best, current) => {
+      const currentScore = current.description.length + (current.quotes?.length || 0) * 50
+      const bestScore = best.description.length + (best.quotes?.length || 0) * 50
+      return currentScore > bestScore ? current : best
+    })
     processedThemes.push(bestTheme)
   }
   
-  return processedThemes.slice(0, 80) // 最多80个主题
+  return processedThemes.slice(0, 50) // 最多50个主题
 }
 
 // 简单去重（备用方案）
@@ -577,8 +622,8 @@ function simpleDeduplication(allThemes: any[]) {
     }
   }
 
-  // Limit to 30 themes
-  const finalThemes = uniqueThemes.slice(0, 30)
+  // Limit to 25 themes
+  const finalThemes = uniqueThemes.slice(0, 25)
   
   console.log(`📊 Simple deduplication: ${allThemes.length} → ${finalThemes.length} themes`)
   
