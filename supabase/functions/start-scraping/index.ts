@@ -12,9 +12,11 @@ interface StartScrapingRequest {
   scrapingSessionId: string
   appInfo?: any
   selectedApps?: any[]
+  redditOnly?: boolean // 🆕 仅 Reddit 分析标识
   searchContext?: {
     userProvidedName: string
     useUserNameForReddit: boolean
+    redditOnlyMode?: boolean // 🆕 Reddit-only 模式
   }
 }
 
@@ -35,6 +37,7 @@ Deno.serve(async (req) => {
       scrapingSessionId, 
       appInfo, 
       selectedApps,
+      redditOnly, // 🆕 接收 Reddit-only 标识
       searchContext 
     }: StartScrapingRequest = await req.json()
 
@@ -56,6 +59,11 @@ Deno.serve(async (req) => {
       : appName
     
     console.log(`🎯 Reddit search will use: "${redditSearchName}" (user-provided: ${searchContext?.useUserNameForReddit})`)
+    
+    // 🆕 Reddit-only 模式检查
+    if (redditOnly || searchContext?.redditOnlyMode) {
+      console.log(`🎯 Reddit-only mode enabled: Skipping app store scraping`)
+    }
 
     // Update scraping session status to running
     await supabaseClient
@@ -74,16 +82,18 @@ Deno.serve(async (req) => {
       supabaseClient, 
       appInfo, 
       selectedApps,
-      redditSearchName // 🎯 传递正确的 Reddit 搜索名称
+      redditSearchName, // 🎯 传递正确的 Reddit 搜索名称
+      redditOnly || searchContext?.redditOnlyMode // 🆕 传递 Reddit-only 标识
     ))
 
     return new Response(
       JSON.stringify({ 
         success: true, 
-        message: 'Scraping started',
+        message: redditOnly ? 'Reddit-only scraping started' : 'Scraping started',
         reportId,
         scrapingSessionId,
-        redditSearchName // 返回实际用于 Reddit 搜索的名称
+        redditSearchName, // 返回实际用于 Reddit 搜索的名称
+        analysisType: redditOnly ? 'reddit_only' : 'comprehensive' // 🆕 分析类型
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -112,12 +122,65 @@ async function performScraping(
   supabaseClient: any,
   appInfo?: any,
   selectedApps?: any[],
-  redditSearchName?: string // 🆕 专门用于 Reddit 搜索的名称
+  redditSearchName?: string, // 🆕 专门用于 Reddit 搜索的名称
+  redditOnly?: boolean // 🆕 Reddit-only 标识
 ) {
   try {
     console.log(`📊 Starting scraping process for ${appName}`)
     console.log(`🎯 Reddit search name: "${redditSearchName || appName}"`)
+    
+    // 🆕 Reddit-only 模式处理
+    if (redditOnly) {
+      console.log(`🎯 Reddit-only mode: Performing Reddit-only scraping`)
+      const scrapedData = await performRedditOnlyScraping(redditSearchName || appName, scrapingSessionId)
+      
+      console.log(`✅ Reddit-only scraping completed: Found ${scrapedData.totalReviews} Reddit posts`)
+      console.log(`- Reddit: ${scrapedData.reddit.length} posts`)
+      
+      // Update scraping session with Reddit-only totals
+      await supabaseClient
+        .from('scraping_sessions')
+        .update({
+          status: 'completed',
+          total_reviews_found: scrapedData.totalReviews,
+          app_store_reviews: 0, // 明确设置为 0
+          google_play_reviews: 0, // 明确设置为 0
+          reddit_posts: scrapedData.reddit.length,
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', scrapingSessionId)
 
+      // Trigger the next stage (AI analysis)
+      console.log(`🔄 Triggering AI analysis for Reddit-only report ${reportId}`)
+      
+      const analysisResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/start-analysis`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          reportId,
+          appName,
+          scrapingSessionId,
+          scrapedDataSummary: {
+            totalReviews: scrapedData.totalReviews,
+            appStoreCount: 0,
+            googlePlayCount: 0,
+            redditCount: scrapedData.reddit.length
+          }
+        })
+      })
+
+      if (!analysisResponse.ok) {
+        throw new Error(`Failed to trigger analysis: ${analysisResponse.status}`)
+      }
+
+      console.log(`✅ Successfully triggered AI analysis for Reddit-only report ${reportId}`)
+      return
+    }
+
+    // 🔄 原有的综合抓取逻辑
     // Determine scraping strategy based on available app info
     let scrapedData
     if (selectedApps && selectedApps.length > 0) {
@@ -199,6 +262,32 @@ async function performScraping(
       .update({ status: 'error' })
       .eq('id', reportId)
   }
+}
+
+// 🆕 仅 Reddit 抓取函数
+async function performRedditOnlyScraping(appName: string, scrapingSessionId: string) {
+  console.log(`🎯 Performing Reddit-only scraping for: "${appName}"`)
+  
+  const scrapedData = {
+    appStore: [],
+    googlePlay: [],
+    reddit: [],
+    totalReviews: 0
+  }
+
+  try {
+    // 只调用 Reddit 抓取
+    const redditData = await scrapeRedditForApp(appName, scrapingSessionId)
+    scrapedData.reddit = redditData
+    scrapedData.totalReviews = redditData.length
+    
+    console.log(`✅ Reddit-only scraping completed: ${scrapedData.reddit.length} posts found`)
+    
+  } catch (error) {
+    console.error(`❌ Error in Reddit-only scraping:`, error)
+  }
+
+  return scrapedData
 }
 
 // Scrape multiple selected apps
