@@ -193,16 +193,16 @@ class AppStoreReviewScraper {
     return null
   }
 
-  // 🔍 策略2: 抓取单页评论 (改进版)
-  async scrapeReviewsPage(appId: string, page: number, country: string = 'us', sortBy: string = 'mostrecent'): Promise<Review[]> {
-    console.log(`📄 [${country.toUpperCase()}] Scraping page ${page} for app ${appId} (sort: ${sortBy})`)
+  // 🔍 策略2: 抓取单页评论 (只使用 mostrecent 排序)
+  async scrapeReviewsPage(appId: string, page: number, country: string = 'us'): Promise<Review[]> {
+    console.log(`📄 [${country.toUpperCase()}] Scraping page ${page} for app ${appId} (mostrecent only)`)
     
     try {
-      // 使用多种RSS feed URL格式
+      // 只使用 mostrecent 排序的RSS feed URL
       const feedUrls = [
-        `https://itunes.apple.com/rss/customerreviews/page=${page}/id=${appId}/sortby=${sortBy}/json?l=en&cc=${country}`,
-        `https://itunes.apple.com/${country}/rss/customerreviews/page=${page}/id=${appId}/sortby=${sortBy}/json`,
-        `https://itunes.apple.com/rss/customerreviews/id=${appId}/page=${page}/sortby=${sortBy}/json?cc=${country}&l=en`
+        `https://itunes.apple.com/rss/customerreviews/page=${page}/id=${appId}/sortby=mostrecent/json?l=en&cc=${country}`,
+        `https://itunes.apple.com/${country}/rss/customerreviews/page=${page}/id=${appId}/sortby=mostrecent/json`,
+        `https://itunes.apple.com/rss/customerreviews/id=${appId}/page=${page}/sortby=mostrecent/json?cc=${country}&l=en`
       ]
       
       for (let urlIndex = 0; urlIndex < feedUrls.length; urlIndex++) {
@@ -257,7 +257,7 @@ class AppStoreReviewScraper {
                   version: entry['im:version'] ? entry['im:version'].label : '',
                   country: country.toUpperCase(),
                   page: page,
-                  reviewId: entry.id ? entry.id.label : `${appId}_${country}_${page}_${i}_${sortBy}`
+                  reviewId: entry.id ? entry.id.label : `${appId}_${country}_${page}_${i}_mostrecent`
                 }
 
                 // 更宽松的过滤条件
@@ -289,34 +289,9 @@ class AppStoreReviewScraper {
     }
   }
 
-  // 🔍 策略3: 多排序方式抓取
-  async scrapeWithMultipleSorts(appId: string, maxPages: number, country: string = 'us'): Promise<Review[]> {
-    console.log(`📚 [${country.toUpperCase()}] Multi-sort scraping: ${maxPages} pages for app ${appId}`)
-    
-    const allReviews: Review[] = []
-    const sortMethods = ['mostrecent', 'mosthelpful', 'mostfavorable', 'mostcritical']
-    
-    for (const sortBy of sortMethods) {
-      console.log(`🔄 [${country.toUpperCase()}] Scraping with sort: ${sortBy}`)
-      
-      try {
-        const sortReviews = await this.scrapeMultiplePages(appId, Math.ceil(maxPages / sortMethods.length), country, sortBy)
-        allReviews.push(...sortReviews)
-        console.log(`📈 [${country.toUpperCase()}] Sort ${sortBy}: Added ${sortReviews.length} reviews`)
-        
-        // 排序方法间的延迟
-        await this.delay(this.rateLimitDelay)
-      } catch (error) {
-        console.error(`❌ [${country.toUpperCase()}] Sort ${sortBy} failed:`, error.message)
-      }
-    }
-    
-    return allReviews
-  }
-
-  // 🔍 策略4: 多页抓取（带重试机制）
-  async scrapeMultiplePages(appId: string, maxPages: number, country: string = 'us', sortBy: string = 'mostrecent'): Promise<Review[]> {
-    console.log(`📚 [${country.toUpperCase()}] Starting multi-page scraping: ${maxPages} pages for app ${appId} (sort: ${sortBy})`)
+  // 🔍 策略3: 多页抓取（带重试机制）- 只使用 mostrecent
+  async scrapeMultiplePages(appId: string, maxPages: number, country: string = 'us'): Promise<Review[]> {
+    console.log(`📚 [${country.toUpperCase()}] Starting multi-page scraping: ${maxPages} pages for app ${appId} (mostrecent only)`)
     
     const allReviews: Review[] = []
     let consecutiveEmptyPages = 0
@@ -331,7 +306,7 @@ class AppStoreReviewScraper {
         try {
           console.log(`🔄 [${country.toUpperCase()}] Processing page ${page}/${maxPages} (attempt ${retry + 1})`)
           
-          pageReviews = await this.scrapeReviewsPage(appId, page, country, sortBy)
+          pageReviews = await this.scrapeReviewsPage(appId, page, country)
           success = true
           break
           
@@ -370,15 +345,16 @@ class AppStoreReviewScraper {
       }
     }
 
-    console.log(`🏁 [${country.toUpperCase()}] Multi-page scraping completed: ${allReviews.length} total reviews`)
+    console.log(`🏁 [${country.toUpperCase()}] Multi-page scraping completed: ${allReviews.length} total reviews (mostrecent only)`)
     return allReviews
   }
 
-  // 🔍 策略5: 多国家抓取 (改进版)
+  // 🔍 策略4: 多国家抓取 (简化版 - 只使用 mostrecent)
   async scrapeMultipleCountries(appId: string, maxPages: number, countries: string[]): Promise<Review[]> {
-    console.log(`🌍 Starting enhanced multi-country scraping for app ${appId}`)
+    console.log(`🌍 Starting streamlined multi-country scraping for app ${appId}`)
     console.log(`🎯 Target countries: ${countries.join(', ').toUpperCase()}`)
     console.log(`📄 Pages per country: ${maxPages}`)
+    console.log(`🔄 Sort method: mostrecent only (streamlined)`)
     
     const allReviews: Review[] = []
     const countryResults: { [country: string]: number } = {}
@@ -391,11 +367,11 @@ class AppStoreReviewScraper {
       console.log(`\n🌍 [${index + 1}/${countries.length}] Processing country: ${country.toUpperCase()}`)
       
       try {
-        // 使用多排序方式抓取
-        const countryReviews = await this.scrapeWithMultipleSorts(appId, maxPages, country)
+        // 直接使用多页抓取，只用 mostrecent 排序
+        const countryReviews = await this.scrapeMultiplePages(appId, maxPages, country)
         countryResults[country] = countryReviews.length
         
-        console.log(`✅ [${country.toUpperCase()}] Country completed: ${countryReviews.length} reviews`)
+        console.log(`✅ [${country.toUpperCase()}] Country completed: ${countryReviews.length} reviews (mostrecent only)`)
         return countryReviews
         
       } catch (error) {
@@ -415,8 +391,8 @@ class AppStoreReviewScraper {
       }
     }
 
-    console.log(`\n🏁 Enhanced multi-country scraping completed!`)
-    console.log(`📊 Results by country:`)
+    console.log(`\n🏁 Streamlined multi-country scraping completed!`)
+    console.log(`📊 Results by country (mostrecent only):`)
     for (const [country, count] of Object.entries(countryResults)) {
       console.log(`   ${country.toUpperCase()}: ${count} reviews`)
     }
@@ -425,19 +401,20 @@ class AppStoreReviewScraper {
     return allReviews
   }
 
-  // 🔍 主要抓取方法 (大幅改进)
+  // 🔍 主要抓取方法 (简化版 - 只使用 mostrecent)
   async scrapeAppStoreReviews(
     appName: string, 
     appId?: string, 
-    maxPages: number = 50, // 增加默认页数
+    maxPages: number = 50, 
     countries: string[] = ['us', 'gb', 'ca', 'au', 'de', 'fr', 'jp', 'kr', 'in', 'br'] // 优化后的默认国家列表
   ): Promise<{ reviews: Review[]; stats: ScrapingStats; appInfo?: any }> {
     const startTime = Date.now()
-    console.log(`\n🚀 === OPTIMIZED APP STORE SCRAPER STARTED ===`)
+    console.log(`\n🚀 === STREAMLINED APP STORE SCRAPER (MOSTRECENT ONLY) ===`)
     console.log(`📱 App Name: "${appName}"`)
     console.log(`🆔 App ID: ${appId || 'Will search automatically'}`)
     console.log(`📄 Max Pages: ${maxPages}`)
     console.log(`🌍 Countries (Optimized): ${countries.join(', ').toUpperCase()}`)
+    console.log(`🔄 Sort Method: mostrecent ONLY (streamlined for speed)`)
     console.log(`⏰ Start Time: ${new Date().toISOString()}`)
 
     const stats: ScrapingStats = {
@@ -486,8 +463,8 @@ class AppStoreReviewScraper {
         }
       }
 
-      // 步骤2: 增强的多国家多页抓取
-      console.log(`\n📚 === STEP 2: OPTIMIZED MULTI-COUNTRY REVIEW SCRAPING ===`)
+      // 步骤2: 简化的多国家多页抓取 (只使用 mostrecent)
+      console.log(`\n📚 === STEP 2: STREAMLINED MULTI-COUNTRY SCRAPING (MOSTRECENT ONLY) ===`)
       const allReviews = await this.scrapeMultipleCountries(finalAppId, maxPages, countries)
 
       // 步骤3: 数据处理和统计
@@ -497,9 +474,8 @@ class AppStoreReviewScraper {
       const uniqueReviews = this.enhancedDeduplication(allReviews)
       console.log(`🔄 Enhanced deduplication: ${allReviews.length} → ${uniqueReviews.length} reviews`)
 
-      // 按日期和质量排序
+      // 按日期排序（最新的在前）- mostrecent 已经是按时间排序的
       uniqueReviews.sort((a, b) => {
-        // 首先按日期排序
         const dateA = new Date(a.date).getTime()
         const dateB = new Date(b.date).getTime()
         if (dateB !== dateA) return dateB - dateA
@@ -511,7 +487,7 @@ class AppStoreReviewScraper {
       // 计算增强的统计信息
       stats.totalReviews = uniqueReviews.length
       stats.scrapingDuration = Date.now() - startTime
-      stats.totalApiCalls += countries.length * maxPages * 4 // 估算API调用次数
+      stats.totalApiCalls += countries.length * maxPages // 简化的API调用估算
 
       if (uniqueReviews.length > 0) {
         // 日期范围
@@ -548,7 +524,7 @@ class AppStoreReviewScraper {
       }
 
       // 步骤4: 输出最终统计
-      console.log(`\n🎯 === OPTIMIZED FINAL RESULTS ===`)
+      console.log(`\n🎯 === STREAMLINED FINAL RESULTS (MOSTRECENT ONLY) ===`)
       console.log(`✅ Total Reviews: ${stats.totalReviews}`)
       console.log(`🌍 Countries Scraped: ${stats.countriesScraped.join(', ')}`)
       console.log(`📄 Pages Crawled: ${stats.pagesCrawled}`)
@@ -556,6 +532,7 @@ class AppStoreReviewScraper {
       console.log(`📅 Date Range: ${stats.dateRange?.earliest} to ${stats.dateRange?.latest}`)
       console.log(`⏱️ Duration: ${(stats.scrapingDuration / 1000).toFixed(1)}s`)
       console.log(`🔗 API Calls: ${stats.totalApiCalls}`)
+      console.log(`🔄 Sort Method: mostrecent only (streamlined)`)
       
       console.log(`📊 Rating Distribution:`)
       for (let i = 1; i <= 5; i++) {
@@ -577,7 +554,7 @@ class AppStoreReviewScraper {
       stats.errors.push(error.message)
       stats.scrapingDuration = Date.now() - startTime
       
-      console.error(`❌ === OPTIMIZED SCRAPING FAILED ===`)
+      console.error(`❌ === STREAMLINED SCRAPING FAILED ===`)
       console.error(`Error: ${error.message}`)
       console.error(`Duration: ${(stats.scrapingDuration / 1000).toFixed(1)}s`)
       
@@ -636,7 +613,7 @@ Deno.serve(async (req) => {
       appName, 
       appId, 
       scrapingSessionId, 
-      maxPages = 50, // 增加默认页数
+      maxPages = 50, 
       countries = ['us', 'gb', 'ca', 'au', 'de', 'fr', 'jp', 'kr', 'in', 'br', 'mx', 'es', 'it', 'nl', 'se'] // 优化后的国家列表
     }: ScrapeRequest = await req.json()
 
@@ -650,10 +627,11 @@ Deno.serve(async (req) => {
       )
     }
 
-    console.log(`🚀 Optimized App Store scraping request received`)
+    console.log(`🚀 Streamlined App Store scraping request received`)
     console.log(`📱 App: ${appName || 'Unknown'} (ID: ${appId || 'Auto-detect'})`)
     console.log(`📄 Max Pages: ${maxPages}`)
     console.log(`🌍 Countries (Optimized): ${countries.join(', ')}`)
+    console.log(`🔄 Sort Method: mostrecent ONLY (streamlined)`)
 
     const scraper = new AppStoreReviewScraper()
     const result = await scraper.scrapeAppStoreReviews(appName, appId, maxPages, countries)
@@ -684,7 +662,8 @@ Deno.serve(async (req) => {
             country: review.country,
             page: review.page,
             review_id: review.reviewId,
-            scraper_version: 'optimized_v4.0',
+            scraper_version: 'streamlined_mostrecent_v5.0',
+            sort_method: 'mostrecent_only',
             scraping_stats: result.stats
           }
         }))
@@ -721,15 +700,16 @@ Deno.serve(async (req) => {
           url: `https://apps.apple.com/app/id${appId || 'unknown'}`
         },
         stats: result.stats,
-        message: `Successfully scraped ${result.reviews.length} reviews from ${result.stats.countriesScraped.length} countries (optimized country list) across ${result.stats.pagesCrawled} pages`,
+        message: `Successfully scraped ${result.reviews.length} reviews from ${result.stats.countriesScraped.length} countries using mostrecent sort only (streamlined approach) across ${result.stats.pagesCrawled} pages`,
         timestamp: new Date().toISOString(),
-        scraper_version: 'optimized_v4.0'
+        scraper_version: 'streamlined_mostrecent_v5.0',
+        sort_method: 'mostrecent_only'
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
   } catch (error) {
-    console.error('❌ Critical error in Optimized App Store scraping:', error)
+    console.error('❌ Critical error in Streamlined App Store scraping:', error)
     
     return new Response(
       JSON.stringify({ 
@@ -743,7 +723,8 @@ Deno.serve(async (req) => {
           totalApiCalls: 0
         },
         timestamp: new Date().toISOString(),
-        scraper_version: 'optimized_v4.0'
+        scraper_version: 'streamlined_mostrecent_v5.0',
+        sort_method: 'mostrecent_only'
       }),
       { 
         status: 500, 
