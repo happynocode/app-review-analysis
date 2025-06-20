@@ -1,24 +1,112 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Download, Share2, Calendar, BarChart3 } from 'lucide-react'
+import { ArrowLeft, Download, Share2, Calendar, BarChart3, Activity, RefreshCw } from 'lucide-react'
 import { ThemeCard } from '../components/ThemeCard'
 import { SidebarNav } from '../components/SidebarNav'
+import { MonitoringDashboard } from '../components/MonitoringDashboard'
 import { Button } from '../components/ui/Button'
+import { Card } from '../components/ui/Card'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { useReportStore } from '../stores/reportStore'
+import { supabase } from '../lib/supabase'
+
+interface ProcessingProgress {
+  report_id: string
+  status: string
+  total_batches: number
+  completed_batches: number
+  progress_percentage: number
+  estimated_completion?: string
+  current_stage: string
+  error_message?: string
+}
 
 export const ReportPage: React.FC = () => {
   const { reportId } = useParams()
   const navigate = useNavigate()
   const { currentReport, loading, fetchReport } = useReportStore()
   const themeRefs = useRef<(HTMLDivElement | null)[]>([])
+  const [activeTab, setActiveTab] = useState<'report' | 'monitoring'>('report')
+  const [processingProgress, setProcessingProgress] = useState<ProcessingProgress | null>(null)
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
   useEffect(() => {
     if (reportId) {
       fetchReport(reportId)
+      fetchProcessingProgress()
     }
   }, [reportId, fetchReport])
+
+  // 定期刷新处理进度
+  useEffect(() => {
+    if (reportId && activeTab === 'report') {
+      const interval = setInterval(() => {
+        fetchProcessingProgress()
+      }, 10000) // 每10秒更新一次
+
+      return () => clearInterval(interval)
+    }
+  }, [reportId, activeTab])
+
+  const fetchProcessingProgress = async () => {
+    if (!reportId) return
+
+    try {
+      // 获取报告状态
+      const { data: report, error } = await supabase
+        .from('reports')
+        .select('status')
+        .eq('id', reportId)
+        .single()
+
+      if (error) throw error
+
+      // 如果报告还在处理中，获取详细进度
+      if (report.status === 'processing') {
+        const { data: tasks, error: tasksError } = await supabase
+          .from('analysis_tasks')
+          .select('*')
+          .eq('report_id', reportId)
+
+        if (tasksError) throw tasksError
+
+        const totalBatches = tasks.length
+        const completedBatches = tasks.filter(task => task.status === 'completed').length
+        const processingBatches = tasks.filter(task => task.status === 'processing').length
+        const progressPercentage = totalBatches > 0 ? (completedBatches / totalBatches) * 100 : 0
+
+        // 估算完成时间
+        const avgProcessingTime = 30 // 假设每批次30秒
+        const remainingBatches = totalBatches - completedBatches - processingBatches
+        const estimatedSeconds = remainingBatches * avgProcessingTime
+        const estimatedCompletion = new Date(Date.now() + estimatedSeconds * 1000).toLocaleTimeString()
+
+        setProcessingProgress({
+          report_id: reportId,
+          status: report.status,
+          total_batches: totalBatches,
+          completed_batches: completedBatches,
+          progress_percentage: progressPercentage,
+          estimated_completion: estimatedCompletion,
+          current_stage: processingBatches > 0 ? `正在处理批次 ${completedBatches + 1}/${totalBatches}` : '等待处理',
+        })
+      } else {
+        setProcessingProgress(null)
+      }
+    } catch (error) {
+      console.error('Error fetching processing progress:', error)
+    }
+  }
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true)
+    await Promise.all([
+      fetchReport(reportId!),
+      fetchProcessingProgress()
+    ])
+    setIsRefreshing(false)
+  }
 
   const scrollToTheme = (index: number) => {
     themeRefs.current[index]?.scrollIntoView({
@@ -81,6 +169,21 @@ export const ReportPage: React.FC = () => {
             </div>
             
             <div className="flex items-center space-x-3">
+              <Button
+                variant={activeTab === 'monitoring' ? 'primary' : 'secondary'}
+                onClick={() => setActiveTab('monitoring')}
+                icon={Activity}
+              >
+                监控
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={handleRefresh}
+                icon={RefreshCw}
+                disabled={isRefreshing}
+              >
+                {isRefreshing ? '刷新中...' : '刷新'}
+              </Button>
               <Button variant="secondary" onClick={handleShare} icon={Share2}>
                 Share
               </Button>
@@ -93,9 +196,75 @@ export const ReportPage: React.FC = () => {
       </header>
 
       <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="grid lg:grid-cols-4 gap-8">
-          {/* Main Content */}
-          <div className="lg:col-span-3 space-y-6">
+        {/* Tab Navigation */}
+        <div className="flex space-x-4 mb-6">
+          <Button
+            variant={activeTab === 'report' ? 'primary' : 'ghost'}
+            onClick={() => setActiveTab('report')}
+          >
+            分析报告
+          </Button>
+          <Button
+            variant={activeTab === 'monitoring' ? 'primary' : 'ghost'}
+            onClick={() => setActiveTab('monitoring')}
+          >
+            系统监控
+          </Button>
+        </div>
+
+        {/* Processing Progress Bar */}
+        {processingProgress && activeTab === 'report' && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6"
+          >
+            <Card className="p-6 bg-blue-50 border-blue-200">
+              <div className="flex items-center justify-between mb-3">
+                                 <div className="flex items-center">
+                   <LoadingSpinner size="sm" inline={true} message="" />
+                   <span className="ml-2 font-medium text-blue-900">
+                     {processingProgress.current_stage}
+                   </span>
+                 </div>
+                <span className="text-blue-700 font-medium">
+                  {processingProgress.progress_percentage.toFixed(1)}%
+                </span>
+              </div>
+              
+              <div className="w-full bg-blue-200 rounded-full h-3 mb-3">
+                <div
+                  className="bg-blue-600 h-3 rounded-full transition-all duration-500 ease-out"
+                  style={{ width: `${processingProgress.progress_percentage}%` }}
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-blue-700">
+                <div>
+                  <span className="font-medium">总批次:</span> {processingProgress.total_batches}
+                </div>
+                <div>
+                  <span className="font-medium">已完成:</span> {processingProgress.completed_batches}
+                </div>
+                <div>
+                  <span className="font-medium">剩余:</span> {processingProgress.total_batches - processingProgress.completed_batches}
+                </div>
+                {processingProgress.estimated_completion && (
+                  <div>
+                    <span className="font-medium">预计完成:</span> {processingProgress.estimated_completion}
+                  </div>
+                )}
+              </div>
+            </Card>
+          </motion.div>
+        )}
+
+        {activeTab === 'monitoring' ? (
+          <MonitoringDashboard />
+        ) : (
+          <div className="grid lg:grid-cols-4 gap-8">
+            {/* Main Content */}
+            <div className="lg:col-span-3 space-y-6">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -125,15 +294,16 @@ export const ReportPage: React.FC = () => {
                 <p className="text-white/60">This report is still being processed or contains no data.</p>
               </div>
             )}
-          </div>
+            </div>
 
-          {/* Sidebar */}
-          <div className="lg:col-span-1">
-            {currentReport.themes && currentReport.themes.length > 0 && (
-              <SidebarNav themes={currentReport.themes} onThemeClick={scrollToTheme} />
-            )}
+            {/* Sidebar */}
+            <div className="lg:col-span-1">
+              {currentReport.themes && currentReport.themes.length > 0 && (
+                <SidebarNav themes={currentReport.themes} onThemeClick={scrollToTheme} />
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )

@@ -5,21 +5,37 @@ import { Sparkles } from 'lucide-react'
 interface LoadingSpinnerProps {
   message?: string
   progress?: number
+  size?: 'sm' | 'md' | 'lg'
+  inline?: boolean
 }
 
 export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({ 
   message = 'Generating report...', 
-  progress 
+  progress,
+  size = 'md',
+  inline = false
 }) => {
+  const getSizeClasses = () => {
+    switch (size) {
+      case 'sm': return 'w-4 h-4'
+      case 'lg': return 'w-20 h-20'
+      default: return 'w-16 h-16'
+    }
+  }
+
+  const containerClass = inline 
+    ? "flex items-center justify-center" 
+    : "fixed inset-0 bg-[#0A1128]/90 backdrop-blur-sm flex items-center justify-center z-50"
+
   return (
-    <div className="fixed inset-0 bg-[#0A1128]/90 backdrop-blur-sm flex items-center justify-center z-50">
+    <div className={containerClass}>
       <div className="text-center space-y-6">
         <motion.div
           animate={{ rotate: 360 }}
           transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-          className="w-16 h-16 mx-auto"
+          className={`${getSizeClasses()} mx-auto`}
         >
-          <Sparkles className="w-16 h-16 text-[#2DD4BF]" />
+          <Sparkles className={`${getSizeClasses()} text-[#2DD4BF]`} />
         </motion.div>
         
         <div className="space-y-2">
