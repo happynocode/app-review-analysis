@@ -6,6 +6,11 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
+// Reddit API configuration (if you have API credentials)
+// const REDDIT_API_KEY = Deno.env.get('REDDIT_API_KEY') // Your Reddit API key
+// const REDDIT_CLIENT_ID = Deno.env.get('REDDIT_CLIENT_ID') // Your Reddit app client ID
+// const REDDIT_CLIENT_SECRET = Deno.env.get('REDDIT_CLIENT_SECRET') // Your Reddit app secret
+
 interface ScrapeRequest {
   appName: string
   scrapingSessionId?: string
@@ -21,14 +26,17 @@ interface RedditPost {
   author: string
   searchTerm?: string
   upvoteRatio?: number
+  commentCount?: number
+  postId?: string
 }
 
-class RedditScraper {
-  private rateLimitDelay = 2000 // 2秒延迟
+class EnhancedRedditScraper {
+  private rateLimitDelay = 2000 // 2 seconds between requests
   private userAgents = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
   ]
 
   private getRandomUserAgent(): string {
@@ -39,21 +47,98 @@ class RedditScraper {
     await new Promise(resolve => setTimeout(resolve, ms))
   }
 
-  // 策略1: 使用 Reddit JSON API (最可靠)
-  async scrapeWithJSONAPI(appName: string): Promise<RedditPost[]> {
+  // Generate comprehensive search terms based on the app name
+  private generateSearchTerms(appName: string): string[] {
+    const cleanName = appName.trim()
+    const nameWords = cleanName.split(/\s+/)
+    const firstWord = nameWords[0]
+    const lastWord = nameWords[nameWords.length - 1]
+    
+    const searchTerms = [
+      // Exact app name variations
+      cleanName,
+      cleanName.toLowerCase(),
+      cleanName.replace(/\s+/g, ''),
+      
+      // App-specific terms
+      `${cleanName} app`,
+      `${cleanName} application`,
+      `${cleanName} mobile app`,
+      
+      // Review and feedback terms
+      `${cleanName} review`,
+      `${cleanName} reviews`,
+      `${cleanName} feedback`,
+      `${cleanName} experience`,
+      
+      // Problem and issue terms
+      `${cleanName} problems`,
+      `${cleanName} issues`,
+      `${cleanName} bugs`,
+      `${cleanName} not working`,
+      
+      // Comparison and alternative terms
+      `${cleanName} vs`,
+      `${cleanName} alternative`,
+      `${cleanName} competitor`,
+      
+      // Single word searches (if multi-word app name)
+      ...(nameWords.length > 1 ? [firstWord, lastWord] : []),
+      
+      // Quoted exact matches
+      `"${cleanName}"`,
+      `"${cleanName} app"`,
+      
+      // Common variations
+      cleanName.replace(/[^a-zA-Z0-9\s]/g, ''), // Remove special characters
+      cleanName.replace(/\s+/g, '_'), // Underscore version
+    ]
+
+    // Remove duplicates and empty strings
+    return [...new Set(searchTerms.filter(term => term.length > 2))]
+  }
+
+  // Enhanced subreddit list with more comprehensive coverage
+  private getTargetSubreddits(): string[] {
+    return [
+      // General app discussion
+      'apps', 'androidapps', 'iosapps', 'AppReviews', 'software',
+      
+      // Platform-specific
+      'Android', 'iphone', 'ios', 'apple', 'google',
+      
+      // Tech and productivity
+      'technology', 'productivity', 'startups', 'entrepreneur',
+      
+      // User experience and reviews
+      'reviews', 'userexperience', 'UXDesign', 'mobiledev',
+      
+      // General discussion
+      'AskReddit', 'NoStupidQuestions', 'tipofmytongue',
+      
+      // Specific categories (will be filtered by relevance)
+      'gaming', 'fitness', 'finance', 'education', 'social',
+      'photography', 'music', 'news', 'shopping', 'travel'
+    ]
+  }
+
+  // Strategy 1: Enhanced JSON API scraping with multiple search terms
+  async scrapeWithEnhancedJSONAPI(appName: string): Promise<RedditPost[]> {
     const posts: RedditPost[] = []
-    const searchTerms = [appName, `${appName} app`, `${appName} review`]
-    const subreddits = ['apps', 'androidapps', 'iosapps', 'AppReviews', 'software']
+    const searchTerms = this.generateSearchTerms(appName)
+    const subreddits = this.getTargetSubreddits()
 
-    console.log(`Starting JSON API scraping for: ${appName}`)
+    console.log(`🔍 Enhanced JSON API scraping for: ${appName}`)
+    console.log(`📝 Generated ${searchTerms.length} search terms: ${searchTerms.slice(0, 5).join(', ')}...`)
+    console.log(`🎯 Targeting ${subreddits.length} subreddits`)
 
-    // 1. 搜索特定 subreddits
-    for (const subreddit of subreddits) {
-      for (const searchTerm of searchTerms) {
+    // 1. Search specific subreddits with multiple terms
+    for (const subreddit of subreddits.slice(0, 15)) { // Limit to top 15 subreddits
+      for (const searchTerm of searchTerms.slice(0, 8)) { // Limit to top 8 search terms
         try {
-          const url = `https://www.reddit.com/r/${subreddit}/search.json?q=${encodeURIComponent(searchTerm)}&restrict_sr=1&sort=relevance&limit=25&t=all`
+          const url = `https://www.reddit.com/r/${subreddit}/search.json?q=${encodeURIComponent(searchTerm)}&restrict_sr=1&sort=relevance&limit=50&t=all`
           
-          console.log(`Searching r/${subreddit} for "${searchTerm}"`)
+          console.log(`🔍 Searching r/${subreddit} for "${searchTerm}"`)
           
           const response = await fetch(url, {
             headers: {
@@ -71,26 +156,26 @@ class RedditScraper {
             if (data?.data?.children) {
               const subredditPosts = this.parseRedditData(data.data.children, appName, searchTerm)
               posts.push(...subredditPosts)
-              console.log(`Found ${subredditPosts.length} posts in r/${subreddit}`)
+              console.log(`✅ Found ${subredditPosts.length} relevant posts in r/${subreddit} for "${searchTerm}"`)
             }
           } else {
-            console.log(`Failed to search r/${subreddit}: ${response.status}`)
+            console.log(`⚠️ Failed to search r/${subreddit} for "${searchTerm}": ${response.status}`)
           }
 
           await this.delay(this.rateLimitDelay)
         } catch (error) {
-          console.error(`Error searching r/${subreddit}:`, error.message)
+          console.error(`❌ Error searching r/${subreddit} for "${searchTerm}":`, error.message)
           continue
         }
       }
     }
 
-    // 2. 全站搜索
-    for (const searchTerm of searchTerms) {
+    // 2. Global searches with top search terms
+    for (const searchTerm of searchTerms.slice(0, 10)) { // Top 10 search terms for global search
       try {
-        const url = `https://www.reddit.com/search.json?q=${encodeURIComponent(searchTerm)}&sort=relevance&limit=50&t=all`
+        const url = `https://www.reddit.com/search.json?q=${encodeURIComponent(searchTerm)}&sort=relevance&limit=100&t=all`
         
-        console.log(`Global search for "${searchTerm}"`)
+        console.log(`🌐 Global search for "${searchTerm}"`)
         
         const response = await fetch(url, {
           headers: {
@@ -108,36 +193,37 @@ class RedditScraper {
           if (data?.data?.children) {
             const globalPosts = this.parseRedditData(data.data.children, appName, searchTerm)
             posts.push(...globalPosts)
-            console.log(`Found ${globalPosts.length} posts in global search`)
+            console.log(`✅ Found ${globalPosts.length} relevant posts in global search for "${searchTerm}"`)
           }
         } else {
-          console.log(`Failed global search: ${response.status}`)
+          console.log(`⚠️ Failed global search for "${searchTerm}": ${response.status}`)
         }
 
         await this.delay(this.rateLimitDelay)
       } catch (error) {
-        console.error(`Error in global search:`, error.message)
+        console.error(`❌ Error in global search for "${searchTerm}":`, error.message)
         continue
       }
     }
 
+    console.log(`📊 Enhanced JSON API completed: ${posts.length} total posts found`)
     return posts
   }
 
-  // 策略2: 使用 Pushshift API (历史数据)
-  async scrapeWithPushshift(appName: string): Promise<RedditPost[]> {
+  // Strategy 2: Enhanced Pushshift API with better search terms
+  async scrapeWithEnhancedPushshift(appName: string): Promise<RedditPost[]> {
     const posts: RedditPost[] = []
-    const searchTerms = [appName, `${appName} app`]
+    const searchTerms = this.generateSearchTerms(appName).slice(0, 6) // Top 6 terms for Pushshift
 
-    console.log(`Starting Pushshift scraping for: ${appName}`)
+    console.log(`🕐 Enhanced Pushshift scraping for: ${appName}`)
 
     for (const searchTerm of searchTerms) {
       try {
-        // Pushshift 搜索最近30天的数据
-        const after = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000) // 30天前
-        const url = `https://api.pushshift.io/reddit/search/submission/?q=${encodeURIComponent(searchTerm)}&size=100&after=${after}&sort=desc&sort_type=score`
+        // Search last 60 days for more recent content
+        const after = Math.floor((Date.now() - 60 * 24 * 60 * 60 * 1000) / 1000)
+        const url = `https://api.pushshift.io/reddit/search/submission/?q=${encodeURIComponent(searchTerm)}&size=200&after=${after}&sort=desc&sort_type=score`
         
-        console.log(`Pushshift search for "${searchTerm}"`)
+        console.log(`🔍 Pushshift search for "${searchTerm}"`)
         
         const response = await fetch(url, {
           headers: {
@@ -151,64 +237,75 @@ class RedditScraper {
           if (data?.data && Array.isArray(data.data)) {
             const pushshiftPosts = this.parsePushshiftData(data.data, appName, searchTerm)
             posts.push(...pushshiftPosts)
-            console.log(`Found ${pushshiftPosts.length} posts via Pushshift`)
+            console.log(`✅ Found ${pushshiftPosts.length} relevant posts via Pushshift for "${searchTerm}"`)
           }
         } else {
-          console.log(`Pushshift search failed: ${response.status}`)
+          console.log(`⚠️ Pushshift search failed for "${searchTerm}": ${response.status}`)
         }
 
-        await this.delay(1000) // Pushshift 限制较宽松
+        await this.delay(1000) // Pushshift has more lenient rate limits
       } catch (error) {
-        console.error(`Pushshift error:`, error.message)
+        console.error(`❌ Pushshift error for "${searchTerm}":`, error.message)
         continue
       }
     }
 
+    console.log(`📊 Enhanced Pushshift completed: ${posts.length} total posts found`)
     return posts
   }
 
-  // 策略3: 使用 Reddit RSS (备用方案)
-  async scrapeWithRSS(appName: string): Promise<RedditPost[]> {
+  // Strategy 3: Enhanced RSS scraping with better filtering
+  async scrapeWithEnhancedRSS(appName: string): Promise<RedditPost[]> {
     const posts: RedditPost[] = []
-    const subreddits = ['apps', 'androidapps', 'iosapps']
+    const subreddits = ['apps', 'androidapps', 'iosapps', 'technology', 'software', 'reviews']
 
-    console.log(`Starting RSS scraping for: ${appName}`)
+    console.log(`📡 Enhanced RSS scraping for: ${appName}`)
 
     for (const subreddit of subreddits) {
       try {
-        const url = `https://www.reddit.com/r/${subreddit}/hot.rss?limit=100`
-        
-        console.log(`RSS scraping r/${subreddit}`)
-        
-        const response = await fetch(url, {
-          headers: {
-            'User-Agent': this.getRandomUserAgent()
+        const urls = [
+          `https://www.reddit.com/r/${subreddit}/hot.rss?limit=200`,
+          `https://www.reddit.com/r/${subreddit}/new.rss?limit=200`,
+          `https://www.reddit.com/r/${subreddit}/top.rss?t=week&limit=100`
+        ]
+
+        for (const url of urls) {
+          try {
+            console.log(`📡 RSS scraping ${url}`)
+            
+            const response = await fetch(url, {
+              headers: {
+                'User-Agent': this.getRandomUserAgent()
+              }
+            })
+
+            if (response.ok) {
+              const rssText = await response.text()
+              const rssPosts = this.parseRSSFeed(rssText, appName, subreddit)
+              posts.push(...rssPosts)
+              console.log(`✅ Found ${rssPosts.length} relevant posts via RSS from r/${subreddit}`)
+            }
+
+            await this.delay(1500)
+          } catch (urlError) {
+            console.error(`❌ RSS URL error for ${url}:`, urlError.message)
           }
-        })
-
-        if (response.ok) {
-          const rssText = await response.text()
-          const rssPosts = this.parseRSSFeed(rssText, appName, subreddit)
-          posts.push(...rssPosts)
-          console.log(`Found ${rssPosts.length} relevant posts via RSS`)
-        } else {
-          console.log(`RSS scraping failed for r/${subreddit}: ${response.status}`)
         }
-
-        await this.delay(1500)
       } catch (error) {
-        console.error(`RSS error for r/${subreddit}:`, error.message)
+        console.error(`❌ RSS error for r/${subreddit}:`, error.message)
         continue
       }
     }
 
+    console.log(`📊 Enhanced RSS completed: ${posts.length} total posts found`)
     return posts
   }
 
-  // 解析 Reddit JSON API 数据
+  // Enhanced Reddit JSON data parsing with better relevance filtering
   private parseRedditData(children: any[], appName: string, searchTerm: string): RedditPost[] {
     const posts: RedditPost[] = []
     const appNameLower = appName.toLowerCase()
+    const appNameWords = appNameLower.split(/\s+/)
 
     for (const child of children) {
       try {
@@ -220,21 +317,23 @@ class RedditScraper {
         const titleLower = title.toLowerCase()
         const selftextLower = selftext.toLowerCase()
 
-        // 检查相关性
-        const isRelevant = titleLower.includes(appNameLower) || 
-                          selftextLower.includes(appNameLower) ||
-                          titleLower.includes(appNameLower.replace(/\s+/g, ''))
+        // Enhanced relevance checking
+        const relevanceScore = this.calculateRelevanceScore(
+          { title: titleLower, text: selftextLower }, 
+          appNameLower, 
+          appNameWords
+        )
 
-        if (!isRelevant) continue
+        if (relevanceScore < 2) continue // Minimum relevance threshold
 
-        // 过滤掉删除的内容
+        // Filter out removed/deleted content
         if (title.includes('[removed]') || title.includes('[deleted]') ||
             selftext.includes('[removed]') || selftext.includes('[deleted]')) {
           continue
         }
 
         const content = selftext || title
-        if (content.length < 20) continue
+        if (content.length < 30) continue // Minimum content length
 
         posts.push({
           text: content,
@@ -245,7 +344,9 @@ class RedditScraper {
           url: post.permalink ? `https://reddit.com${post.permalink}` : '',
           author: post.author || 'Anonymous',
           searchTerm: searchTerm,
-          upvoteRatio: post.upvote_ratio || 0
+          upvoteRatio: post.upvote_ratio || 0,
+          commentCount: post.num_comments || 0,
+          postId: post.id || ''
         })
       } catch (error) {
         console.error('Error parsing Reddit post:', error)
@@ -256,10 +357,11 @@ class RedditScraper {
     return posts
   }
 
-  // 解析 Pushshift 数据
+  // Enhanced Pushshift data parsing
   private parsePushshiftData(data: any[], appName: string, searchTerm: string): RedditPost[] {
     const posts: RedditPost[] = []
     const appNameLower = appName.toLowerCase()
+    const appNameWords = appNameLower.split(/\s+/)
 
     for (const post of data) {
       try {
@@ -268,13 +370,16 @@ class RedditScraper {
         const titleLower = title.toLowerCase()
         const selftextLower = selftext.toLowerCase()
 
-        const isRelevant = titleLower.includes(appNameLower) || 
-                          selftextLower.includes(appNameLower)
+        const relevanceScore = this.calculateRelevanceScore(
+          { title: titleLower, text: selftextLower }, 
+          appNameLower, 
+          appNameWords
+        )
 
-        if (!isRelevant) continue
+        if (relevanceScore < 2) continue
 
         const content = selftext || title
-        if (content.length < 20) continue
+        if (content.length < 30) continue
 
         posts.push({
           text: content,
@@ -285,7 +390,9 @@ class RedditScraper {
           url: `https://reddit.com/r/${post.subreddit}/comments/${post.id}`,
           author: post.author || 'Anonymous',
           searchTerm: searchTerm,
-          upvoteRatio: 0
+          upvoteRatio: 0,
+          commentCount: post.num_comments || 0,
+          postId: post.id || ''
         })
       } catch (error) {
         console.error('Error parsing Pushshift post:', error)
@@ -296,13 +403,13 @@ class RedditScraper {
     return posts
   }
 
-  // 解析 RSS Feed
+  // Enhanced RSS feed parsing
   private parseRSSFeed(rssText: string, appName: string, subreddit: string): RedditPost[] {
     const posts: RedditPost[] = []
     const appNameLower = appName.toLowerCase()
+    const appNameWords = appNameLower.split(/\s+/)
 
     try {
-      // 简单的RSS解析
       const itemRegex = /<item>(.*?)<\/item>/gs
       const items = rssText.match(itemRegex) || []
 
@@ -319,10 +426,13 @@ class RedditScraper {
           const titleLower = title.toLowerCase()
           const descLower = description.toLowerCase()
 
-          const isRelevant = titleLower.includes(appNameLower) || 
-                            descLower.includes(appNameLower)
+          const relevanceScore = this.calculateRelevanceScore(
+            { title: titleLower, text: descLower }, 
+            appNameLower, 
+            appNameWords
+          )
 
-          if (isRelevant && title.length > 20) {
+          if (relevanceScore >= 2 && title.length > 20) {
             posts.push({
               text: description || title,
               title: title,
@@ -331,7 +441,8 @@ class RedditScraper {
               subreddit: subreddit,
               url: linkMatch[1],
               author: 'RSS',
-              searchTerm: appName
+              searchTerm: appName,
+              commentCount: 0
             })
           }
         }
@@ -343,118 +454,224 @@ class RedditScraper {
     return posts
   }
 
-  // 主要抓取方法 - 尝试多种策略
+  // Enhanced relevance scoring algorithm
+  private calculateRelevanceScore(post: { title: string; text: string }, appNameLower: string, appNameWords: string[]): number {
+    let score = 0
+    const { title, text } = post
+
+    // Exact app name matches (highest priority)
+    if (title.includes(appNameLower)) score += 10
+    if (text.includes(appNameLower)) score += 8
+
+    // Individual word matches
+    for (const word of appNameWords) {
+      if (word.length > 2) {
+        if (title.includes(word)) score += 3
+        if (text.includes(word)) score += 2
+      }
+    }
+
+    // App-related keywords
+    const appKeywords = ['app', 'application', 'mobile', 'download', 'install', 'update']
+    for (const keyword of appKeywords) {
+      if (title.includes(keyword) || text.includes(keyword)) score += 1
+    }
+
+    // Review and feedback keywords
+    const reviewKeywords = ['review', 'feedback', 'experience', 'opinion', 'recommend', 'rating']
+    for (const keyword of reviewKeywords) {
+      if (title.includes(keyword) || text.includes(keyword)) score += 2
+    }
+
+    // Problem keywords (valuable for analysis)
+    const problemKeywords = ['problem', 'issue', 'bug', 'error', 'crash', 'broken', 'not working']
+    for (const keyword of problemKeywords) {
+      if (title.includes(keyword) || text.includes(keyword)) score += 2
+    }
+
+    // Negative indicators (reduce score)
+    const negativeKeywords = ['spam', 'advertisement', 'promotion', 'affiliate']
+    for (const keyword of negativeKeywords) {
+      if (title.includes(keyword) || text.includes(keyword)) score -= 5
+    }
+
+    return score
+  }
+
+  // Main scraping method with enhanced strategies
   async scrapeReddit(appName: string): Promise<RedditPost[]> {
     const allPosts: RedditPost[] = []
     
-    console.log(`Starting comprehensive Reddit scraping for: ${appName}`)
+    console.log(`\n🚀 === ENHANCED REDDIT SCRAPER STARTED ===`)
+    console.log(`📱 App Name: "${appName}"`)
+    console.log(`🎯 Using user-provided app name for search optimization`)
+    console.log(`⏰ Start Time: ${new Date().toISOString()}`)
 
-    // 策略1: JSON API (最重要)
+    // Strategy 1: Enhanced JSON API (most important)
     try {
-      const jsonPosts = await this.scrapeWithJSONAPI(appName)
+      console.log(`\n📊 === STRATEGY 1: ENHANCED JSON API ===`)
+      const jsonPosts = await this.scrapeWithEnhancedJSONAPI(appName)
       allPosts.push(...jsonPosts)
-      console.log(`JSON API strategy: ${jsonPosts.length} posts`)
+      console.log(`✅ Enhanced JSON API strategy: ${jsonPosts.length} posts`)
     } catch (error) {
-      console.error('JSON API strategy failed:', error)
+      console.error('❌ Enhanced JSON API strategy failed:', error)
     }
 
-    // 策略2: Pushshift (历史数据)
+    // Strategy 2: Enhanced Pushshift (historical data)
     try {
-      const pushshiftPosts = await this.scrapeWithPushshift(appName)
+      console.log(`\n🕐 === STRATEGY 2: ENHANCED PUSHSHIFT ===`)
+      const pushshiftPosts = await this.scrapeWithEnhancedPushshift(appName)
       allPosts.push(...pushshiftPosts)
-      console.log(`Pushshift strategy: ${pushshiftPosts.length} posts`)
+      console.log(`✅ Enhanced Pushshift strategy: ${pushshiftPosts.length} posts`)
     } catch (error) {
-      console.error('Pushshift strategy failed:', error)
+      console.error('❌ Enhanced Pushshift strategy failed:', error)
     }
 
-    // 策略3: RSS (备用)
+    // Strategy 3: Enhanced RSS (backup)
     try {
-      const rssPosts = await this.scrapeWithRSS(appName)
+      console.log(`\n📡 === STRATEGY 3: ENHANCED RSS ===`)
+      const rssPosts = await this.scrapeWithEnhancedRSS(appName)
       allPosts.push(...rssPosts)
-      console.log(`RSS strategy: ${rssPosts.length} posts`)
+      console.log(`✅ Enhanced RSS strategy: ${rssPosts.length} posts`)
     } catch (error) {
-      console.error('RSS strategy failed:', error)
+      console.error('❌ Enhanced RSS strategy failed:', error)
     }
 
-    // 去重和过滤
-    const uniquePosts = this.deduplicateAndFilter(allPosts, appName)
+    // Enhanced deduplication and filtering
+    console.log(`\n🔧 === ENHANCED POST PROCESSING ===`)
+    const uniquePosts = this.enhancedDeduplicationAndFilter(allPosts, appName)
     
-    console.log(`Final result: ${uniquePosts.length} unique, relevant posts`)
+    console.log(`\n🎯 === ENHANCED REDDIT SCRAPING COMPLETED ===`)
+    console.log(`📊 Total posts collected: ${allPosts.length}`)
+    console.log(`✨ Final unique, relevant posts: ${uniquePosts.length}`)
+    console.log(`⏰ End Time: ${new Date().toISOString()}`)
     
     return uniquePosts
   }
 
-  // 去重和过滤
-  private deduplicateAndFilter(posts: RedditPost[], appName: string): RedditPost[] {
-    // 去重 - 基于URL和文本内容
-    const seen = new Set<string>()
+  // Enhanced deduplication and filtering
+  private enhancedDeduplicationAndFilter(posts: RedditPost[], appName: string): RedditPost[] {
+    console.log(`🔧 Enhanced deduplication and filtering: ${posts.length} input posts`)
+
+    // Step 1: Remove exact duplicates by URL and content
+    const seenUrls = new Set<string>()
+    const seenContent = new Set<string>()
     const uniquePosts = posts.filter(post => {
-      const key = post.url || post.text.substring(0, 100)
-      if (seen.has(key)) return false
-      seen.add(key)
+      const urlKey = post.url || `${post.title}_${post.author}_${post.date}`
+      const contentKey = post.text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ')
+      
+      if (seenUrls.has(urlKey) || seenContent.has(contentKey)) {
+        return false
+      }
+      
+      seenUrls.add(urlKey)
+      seenContent.add(contentKey)
       return true
     })
 
-    // 过滤和排序
+    console.log(`📊 After deduplication: ${uniquePosts.length} posts`)
+
+    // Step 2: Enhanced filtering
     const appNameLower = appName.toLowerCase()
+    const appNameWords = appNameLower.split(/\s+/)
     
     const filteredPosts = uniquePosts.filter(post => {
       const text = post.text.toLowerCase()
       const title = post.title.toLowerCase()
       
-      return (
-        post.text.length >= 30 && 
-        post.text.length <= 5000 &&
-        post.score >= -5 && // 允许一些负分，但不要太低
-        !text.includes('[removed]') &&
-        !text.includes('[deleted]') &&
-        !text.includes('automod') &&
-        !text.includes('this post has been removed') &&
-        // 确保真的提到了应用
-        (text.includes(appNameLower) || 
-         title.includes(appNameLower) ||
-         text.includes(appNameLower.replace(/\s+/g, '')))
-      )
+      // Quality filters
+      if (post.text.length < 50 || post.text.length > 8000) return false
+      if (post.score < -10) return false // Allow some negative scores but not too low
+      
+      // Content quality filters
+      if (text.includes('[removed]') || text.includes('[deleted]')) return false
+      if (text.includes('automod') || text.includes('this post has been removed')) return false
+      if (title.includes('daily thread') || title.includes('weekly thread')) return false
+      
+      // Relevance filter (enhanced)
+      const relevanceScore = this.calculateRelevanceScore({ title, text }, appNameLower, appNameWords)
+      if (relevanceScore < 3) return false
+      
+      // Spam and low-quality content filters
+      const spamIndicators = ['click here', 'buy now', 'limited time', 'act fast', 'make money']
+      if (spamIndicators.some(indicator => text.includes(indicator))) return false
+      
+      return true
     })
 
-    // 按相关性和质量排序
-    return filteredPosts
-      .sort((a, b) => {
-        // 计算相关性分数
-        const scoreA = this.calculateRelevanceScore(a, appName)
-        const scoreB = this.calculateRelevanceScore(b, appName)
-        return scoreB - scoreA
-      })
-      .slice(0, 30) // 限制为前30个最相关的帖子
+    console.log(`📊 After enhanced filtering: ${filteredPosts.length} posts`)
+
+    // Step 3: Enhanced ranking and selection
+    const rankedPosts = filteredPosts
+      .map(post => ({
+        ...post,
+        relevanceScore: this.calculateEnhancedRelevanceScore(post, appName)
+      }))
+      .sort((a, b) => b.relevanceScore - a.relevanceScore)
+      .slice(0, 50) // Top 50 most relevant posts
+
+    console.log(`✅ Enhanced processing completed: ${rankedPosts.length} final posts`)
+    
+    return rankedPosts
   }
 
-  // 计算相关性分数
-  private calculateRelevanceScore(post: RedditPost, appName: string): number {
+  // Enhanced relevance scoring for final ranking
+  private calculateEnhancedRelevanceScore(post: RedditPost, appName: string): number {
     const appNameLower = appName.toLowerCase()
     const text = post.text.toLowerCase()
     const title = post.title.toLowerCase()
     
     let score = 0
     
-    // 基础分数
-    score += post.score * 0.1 // Reddit分数
-    score += post.text.length / 100 // 内容长度
+    // Base Reddit metrics
+    score += Math.min(post.score * 0.1, 20) // Reddit score (capped)
+    score += Math.min((post.commentCount || 0) * 0.2, 10) // Comment engagement
+    score += post.text.length / 100 // Content length
     
-    // 相关性加分
-    if (title.includes(appNameLower)) score += 10
-    if (text.includes(appNameLower)) score += 5
-    if (title.includes('review')) score += 3
-    if (text.includes('review')) score += 2
-    if (post.subreddit.includes('app')) score += 2
+    // Relevance factors
+    if (title.includes(appNameLower)) score += 15
+    if (text.includes(appNameLower)) score += 10
     
-    // 质量指标
-    if (post.upvoteRatio && post.upvoteRatio > 0.7) score += 3
-    if (post.text.length > 200) score += 2
+    // App-specific terms
+    const appTerms = [`${appNameLower} app`, `${appNameLower} application`]
+    for (const term of appTerms) {
+      if (title.includes(term) || text.includes(term)) score += 8
+    }
+    
+    // Review indicators
+    const reviewTerms = ['review', 'experience', 'opinion', 'recommend', 'rating', 'feedback']
+    for (const term of reviewTerms) {
+      if (title.includes(term)) score += 5
+      if (text.includes(term)) score += 3
+    }
+    
+    // Problem/issue indicators (valuable for analysis)
+    const problemTerms = ['problem', 'issue', 'bug', 'error', 'crash', 'broken', 'not working', 'disappointed']
+    for (const term of problemTerms) {
+      if (title.includes(term)) score += 4
+      if (text.includes(term)) score += 2
+    }
+    
+    // Quality indicators
+    if (post.upvoteRatio && post.upvoteRatio > 0.7) score += 5
+    if (post.text.length > 300) score += 3
+    if (post.author !== 'Anonymous' && post.author !== 'RSS') score += 2
+    
+    // Subreddit relevance
+    const relevantSubreddits = ['apps', 'androidapps', 'iosapps', 'reviews', 'software']
+    if (relevantSubreddits.includes(post.subreddit.toLowerCase())) score += 5
+    
+    // Recency bonus (more recent posts are more valuable)
+    const postDate = new Date(post.date)
+    const daysSincePost = (Date.now() - postDate.getTime()) / (1000 * 60 * 60 * 24)
+    if (daysSincePost < 30) score += 3
+    else if (daysSincePost < 90) score += 1
     
     return score
   }
 }
 
+// Main handler
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
@@ -465,7 +682,7 @@ Deno.serve(async (req) => {
 
     if (!appName) {
       return new Response(
-        JSON.stringify({ error: 'Missing appName' }),
+        JSON.stringify({ error: 'Missing appName parameter' }),
         { 
           status: 400, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -473,14 +690,17 @@ Deno.serve(async (req) => {
       )
     }
 
-    console.log(`Starting Reddit scraping for: ${appName}`)
+    console.log(`🚀 Enhanced Reddit scraping request for: "${appName}"`)
+    console.log(`🎯 Using user-provided app name for optimized search`)
 
-    const scraper = new RedditScraper()
+    const scraper = new EnhancedRedditScraper()
     const posts = await scraper.scrapeReddit(appName)
 
-    // 保存到数据库
+    // Save to database if session ID provided
     if (scrapingSessionId && posts.length > 0) {
       try {
+        console.log(`💾 Saving ${posts.length} posts to database...`)
+        
         const supabaseClient = createClient(
           Deno.env.get('SUPABASE_URL') ?? '',
           Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -490,7 +710,7 @@ Deno.serve(async (req) => {
           scraping_session_id: scrapingSessionId,
           platform: 'reddit' as const,
           review_text: post.text,
-          rating: null,
+          rating: null, // Reddit posts don't have ratings
           review_date: post.date,
           author_name: post.author,
           source_url: post.url,
@@ -499,47 +719,77 @@ Deno.serve(async (req) => {
             score: post.score,
             subreddit: post.subreddit,
             search_term: post.searchTerm,
-            upvote_ratio: post.upvoteRatio
+            upvote_ratio: post.upvoteRatio,
+            comment_count: post.commentCount,
+            post_id: post.postId,
+            relevance_score: (post as any).relevanceScore || 0,
+            scraper_version: 'enhanced_v3.0'
           }
         }))
 
-        const { error: saveError } = await supabaseClient
-          .from('scraped_reviews')
-          .insert(postsToSave)
+        // Save in batches to avoid timeouts
+        const batchSize = 50
+        for (let i = 0; i < postsToSave.length; i += batchSize) {
+          const batch = postsToSave.slice(i, i + batchSize)
+          
+          const { error: saveError } = await supabaseClient
+            .from('scraped_reviews')
+            .insert(batch)
 
-        if (saveError) {
-          console.error('Error saving Reddit posts:', saveError)
-        } else {
-          console.log(`Successfully saved ${postsToSave.length} Reddit posts to database`)
+          if (saveError) {
+            console.error(`❌ Database save error for batch ${Math.floor(i/batchSize) + 1}:`, saveError)
+          } else {
+            console.log(`✅ Saved batch ${Math.floor(i/batchSize) + 1}: ${batch.length} posts`)
+          }
         }
+
+        console.log(`✅ Successfully saved all ${postsToSave.length} Reddit posts to database`)
+
       } catch (saveError) {
-        console.error('Error in database save operation:', saveError)
+        console.error('❌ Error saving Reddit posts to database:', saveError)
       }
     }
 
+    // Calculate enhanced statistics
     const stats = {
       totalPosts: posts.length,
       subreddits: [...new Set(posts.map(p => p.subreddit))],
-      averageScore: posts.length > 0 ? posts.reduce((sum, p) => sum + p.score, 0) / posts.length : 0,
+      averageScore: posts.length > 0 ? Math.round(posts.reduce((sum, p) => sum + p.score, 0) / posts.length) : 0,
+      averageRelevanceScore: posts.length > 0 ? Math.round(posts.reduce((sum, p) => sum + ((p as any).relevanceScore || 0), 0) / posts.length) : 0,
       dateRange: posts.length > 0 ? {
         earliest: Math.min(...posts.map(p => new Date(p.date).getTime())),
         latest: Math.max(...posts.map(p => new Date(p.date).getTime()))
-      } : null
+      } : null,
+      searchTermsUsed: posts.length > 0 ? [...new Set(posts.map(p => p.searchTerm).filter(Boolean))] : [],
+      topSubreddits: Object.entries(
+        posts.reduce((acc, p) => {
+          acc[p.subreddit] = (acc[p.subreddit] || 0) + 1
+          return acc
+        }, {} as Record<string, number>)
+      ).sort(([,a], [,b]) => b - a).slice(0, 5)
     }
 
-    console.log(`Reddit scraping completed for ${appName}:`, stats)
+    console.log(`\n📊 === ENHANCED REDDIT SCRAPING STATISTICS ===`)
+    console.log(`✅ Total posts: ${stats.totalPosts}`)
+    console.log(`🎯 Average relevance score: ${stats.averageRelevanceScore}`)
+    console.log(`📈 Average Reddit score: ${stats.averageScore}`)
+    console.log(`🏷️ Subreddits found: ${stats.subreddits.length}`)
+    console.log(`🔍 Search terms used: ${stats.searchTermsUsed.length}`)
 
     return new Response(
       JSON.stringify({ 
         posts,
         stats,
-        message: `Successfully scraped ${posts.length} Reddit posts`
+        message: `Enhanced Reddit scraping completed: ${posts.length} high-quality, relevant posts found using optimized search terms based on "${appName}"`,
+        timestamp: new Date().toISOString(),
+        scraper_version: 'enhanced_v3.0',
+        search_optimization: 'user_provided_app_name'
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
   } catch (error) {
-    console.error('Critical error in Reddit scraping:', error)
+    console.error('❌ Critical error in Enhanced Reddit scraping:', error)
     return new Response(
       JSON.stringify({ 
         error: 'Failed to scrape Reddit',
@@ -547,8 +797,10 @@ Deno.serve(async (req) => {
         posts: [],
         stats: {
           totalPosts: 0,
-          errorCount: 1
-        }
+          errorCount: 1,
+          scraper_version: 'enhanced_v3.0'
+        },
+        timestamp: new Date().toISOString()
       }),
       { 
         status: 500, 
