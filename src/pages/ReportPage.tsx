@@ -226,7 +226,7 @@ export const ReportPage: React.FC = () => {
               </Button>
               <div>
                 <h1 className="text-2xl font-bold text-white">
-                  {currentReport.app_name} Analysis
+                  {currentReport.user_search_term || currentReport.app_name} Analysis
                 </h1>
                 <div className="flex items-center text-white/60 text-sm mt-1">
                   <Calendar className="w-4 h-4 mr-1" />
@@ -342,7 +342,7 @@ export const ReportPage: React.FC = () => {
                 <h2 className="text-xl font-semibold text-white">Analysis Overview</h2>
               </div>
               <p className="text-white/70 leading-relaxed">
-                This report analyzes user reviews and feedback for <strong className="text-white">{currentReport.app_name}</strong> across 
+                This report analyzes user reviews and feedback for <strong className="text-white">{currentReport.user_search_term || currentReport.app_name}</strong> across 
                 multiple platforms including App Store, Google Play, and Reddit. We've identified the top themes 
                 that users discuss most frequently, along with representative quotes and actionable product suggestions.
               </p>

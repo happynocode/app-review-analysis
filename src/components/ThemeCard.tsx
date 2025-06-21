@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, Quote, Lightbulb, Calendar, ExternalLink } from 'lucide-react'
+import { ChevronDown, Quote, Lightbulb } from 'lucide-react'
 import { Theme } from '../stores/reportStore'
 import { Card } from './ui/Card'
 
@@ -34,7 +34,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({ theme, index }) => {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: index * 0.1 }}
     >
-      <Card className="cursor-pointer" hover>
+      <Card className="p-6 bg-white/10 backdrop-blur-sm border-white/20 hover:bg-white/15 transition-all duration-300 cursor-pointer">
         <div
           onClick={() => setIsExpanded(!isExpanded)}
           className="flex items-start justify-between"
@@ -85,17 +85,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({ theme, index }) => {
                         key={quote.id}
                         className="bg-white/5 rounded-xl p-4 border-l-4 border-[#2DD4BF]"
                       >
-                        <p className="text-white/80 italic mb-3">"{quote.text}"</p>
-                        <div className="flex items-center justify-between text-sm text-white/50">
-                          <div className="flex items-center">
-                            <ExternalLink className="w-4 h-4 mr-1" />
-                            <span>{quote.source}</span>
-                          </div>
-                          <div className="flex items-center">
-                            <Calendar className="w-4 h-4 mr-1" />
-                            <span>{new Date(quote.review_date).toLocaleDateString()}</span>
-                          </div>
-                        </div>
+                        <p className="text-white/80 italic">"{quote.text}"</p>
                       </div>
                     ))}
                   </div>

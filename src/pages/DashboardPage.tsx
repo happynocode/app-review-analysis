@@ -150,7 +150,7 @@ export const DashboardPage: React.FC = () => {
       }
     } catch (error) {
       console.error('Error deleting data:', error)
-      alert(`Error deleting data: ${error.message}`)
+      alert(`Error deleting data: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setDeleteLoading(false)
     }
@@ -324,22 +324,9 @@ export const DashboardPage: React.FC = () => {
                       <BarChart3 className="w-6 h-6 text-[#2DD4BF]" />
                     </div>
                     <div className="flex-1">
-                      <h3 className="font-semibold text-white">{report.app_name}</h3>
-                      
-                      {(report.user_search_term || report.selected_app_name) && (
-                        <div className="text-sm text-white/70 mt-1">
-                          {report.user_search_term && (
-                            <span className="bg-blue-500/20 text-blue-300 px-2 py-1 rounded-md mr-2">
-                              Search: "{report.user_search_term}"
-                            </span>
-                          )}
-                          {report.selected_app_name && report.selected_app_name !== report.user_search_term && (
-                            <span className="bg-green-500/20 text-green-300 px-2 py-1 rounded-md mr-2">
-                              App: {report.selected_app_name}
-                            </span>
-                          )}
-                        </div>
-                      )}
+                      <h3 className="font-semibold text-white">
+                        {report.user_search_term || report.app_name}
+                      </h3>
                       
                       <div className="flex items-center space-x-4 text-sm text-white/60 mt-2">
                         <div className="flex items-center">
