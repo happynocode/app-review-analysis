@@ -27,12 +27,21 @@ export const getUserProfile = async (userId: string) => {
 }
 
 // Report operations
-export const createReport = async (userId: string, appName: string) => {
+export const createReport = async (
+  userId: string, 
+  appName: string, 
+  userSearchTerm?: string, 
+  selectedAppName?: string, 
+  enabledPlatforms?: string[]
+) => {
   const { data, error } = await supabase
     .from('reports')
     .insert({
       user_id: userId,
       app_name: appName,
+      user_search_term: userSearchTerm,
+      selected_app_name: selectedAppName,
+      enabled_platforms: enabledPlatforms || ['app_store', 'google_play', 'reddit'],
       status: 'pending'
     })
     .select()
@@ -45,7 +54,7 @@ export const createReport = async (userId: string, appName: string) => {
 export const getUserReports = async (userId: string) => {
   const { data, error } = await supabase
     .from('reports')
-    .select('*')
+    .select('*, user_search_term, selected_app_name, enabled_platforms')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
 

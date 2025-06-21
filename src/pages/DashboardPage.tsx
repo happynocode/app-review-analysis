@@ -323,9 +323,25 @@ export const DashboardPage: React.FC = () => {
                     <div className="w-12 h-12 bg-[#2DD4BF]/20 rounded-lg flex items-center justify-center">
                       <BarChart3 className="w-6 h-6 text-[#2DD4BF]" />
                     </div>
-                    <div>
+                    <div className="flex-1">
                       <h3 className="font-semibold text-white">{report.app_name}</h3>
-                      <div className="flex items-center space-x-4 text-sm text-white/60">
+                      
+                      {(report.user_search_term || report.selected_app_name) && (
+                        <div className="text-sm text-white/70 mt-1">
+                          {report.user_search_term && (
+                            <span className="bg-blue-500/20 text-blue-300 px-2 py-1 rounded-md mr-2">
+                              Search: "{report.user_search_term}"
+                            </span>
+                          )}
+                          {report.selected_app_name && report.selected_app_name !== report.user_search_term && (
+                            <span className="bg-green-500/20 text-green-300 px-2 py-1 rounded-md mr-2">
+                              App: {report.selected_app_name}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      
+                      <div className="flex items-center space-x-4 text-sm text-white/60 mt-2">
                         <div className="flex items-center">
                           <Calendar className="w-4 h-4 mr-1" />
                           {new Date(report.created_at).toLocaleDateString()}
@@ -334,6 +350,29 @@ export const DashboardPage: React.FC = () => {
                           {getStatusIcon(report.status)}
                           <span className="ml-1">{getStatusText(report.status, report)}</span>
                         </div>
+                        
+                        {report.enabled_platforms && report.enabled_platforms.length > 0 && (
+                          <div className="flex items-center">
+                            <span className="text-white/40 mr-2">Platforms:</span>
+                            <div className="flex space-x-1">
+                              {report.enabled_platforms.map((platform: string) => (
+                                <span 
+                                  key={platform}
+                                  className={`px-2 py-1 rounded text-xs font-medium ${
+                                    platform === 'app_store' ? 'bg-gray-500/20 text-gray-300' :
+                                    platform === 'google_play' ? 'bg-green-500/20 text-green-300' :
+                                    platform === 'reddit' ? 'bg-orange-500/20 text-orange-300' :
+                                    'bg-white/10 text-white/60'
+                                  }`}
+                                >
+                                  {platform === 'app_store' ? 'iOS' :
+                                   platform === 'google_play' ? 'Android' :
+                                   platform === 'reddit' ? 'Reddit' : platform}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

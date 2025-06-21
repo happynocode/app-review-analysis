@@ -9,6 +9,8 @@ const corsHeaders = {
 interface StartScrapingRequest {
   reportId: string
   appName: string
+  userSearchTerm?: string // 🆕 用户的原始搜索词
+  selectedAppName?: string // 🆕 用户选择的app名称
   scrapingSessionId: string
   appInfo?: any
   selectedApps?: any[]
@@ -36,6 +38,8 @@ Deno.serve(async (req) => {
     const { 
       reportId, 
       appName, 
+      userSearchTerm,
+      selectedAppName,
       scrapingSessionId, 
       appInfo, 
       selectedApps,
@@ -62,12 +66,13 @@ Deno.serve(async (req) => {
       (redditOnly || searchContext?.redditOnlyMode ? ['reddit'] : ['app_store', 'google_play', 'reddit'])
     
     // 🔑 确定 Reddit 搜索使用的名称
-    const redditSearchName = searchContext?.useUserNameForReddit 
-      ? searchContext.userProvidedName 
-      : appName
+    const redditSearchName = userSearchTerm || // 🆕 优先使用用户搜索词
+      (searchContext?.useUserNameForReddit 
+        ? searchContext.userProvidedName 
+        : appName)
     
     console.log(`🎯 Enabled platforms: ${finalEnabledPlatforms.join(', ')}`)
-    console.log(`🎯 Reddit search will use: "${redditSearchName}"`)
+    console.log(`🎯 Reddit search will use: "${redditSearchName}" (user search term: "${userSearchTerm || 'not provided'}", selected app: "${selectedAppName || 'not provided'}")`)
     
     // 🆕 更新scraping session中的平台状态（如果还没有设置）
     const { data: currentSession } = await supabaseClient
@@ -116,7 +121,9 @@ Deno.serve(async (req) => {
       selectedApps,
       redditSearchName,
       finalEnabledPlatforms, // 🆕 传递启用的平台
-      analysisConfig // 🆕 传递分析配置
+      analysisConfig, // 🆕 传递分析配置
+      userSearchTerm, // 🆕 传递用户搜索词
+      selectedAppName // 🆕 传递选中的app名称
     ))
 
     return new Response(
@@ -157,7 +164,9 @@ async function performScraping(
   selectedApps?: any[],
   redditSearchName?: string,
   enabledPlatforms?: string[], // 🆕 启用的平台
-  analysisConfig?: any // 🆕 分析配置
+  analysisConfig?: any, // 🆕 分析配置
+  userSearchTerm?: string, // 🆕 传递用户搜索词
+  selectedAppName?: string // 🆕 传递选中的app名称
 ) {
   try {
     console.log(`📊 Starting scraping process for ${appName}`)
@@ -212,7 +221,7 @@ async function performScraping(
     } else {
       // Fallback to general search
       console.log(`Fallback to general search for: ${appName}`)
-      scrapedData = await scrapeGeneralSearch(appName, scrapingSessionId, redditSearchName, enabledPlatforms)
+      scrapedData = await scrapeGeneralSearch(appName, scrapingSessionId, redditSearchName, enabledPlatforms, userSearchTerm, selectedAppName)
     }
     
     console.log(`✅ Scraping completed: Found ${scrapedData.totalReviews} total reviews`)
@@ -348,9 +357,10 @@ async function scrapeSingleAppWithInfo(appInfo: any, scrapingSessionId: string, 
   return scrapedData
 }
 
-// General search (fallback)
-async function scrapeGeneralSearch(appName: string, scrapingSessionId: string, redditSearchName?: string, enabledPlatforms?: string[]) {
-  return await startParallelScraping(appName, scrapingSessionId, redditSearchName, enabledPlatforms)
+// General search approach (no specific app info)
+async function scrapeGeneralSearch(appName: string, scrapingSessionId: string, redditSearchName?: string, enabledPlatforms?: string[], userSearchTerm?: string, selectedAppName?: string) {
+  console.log(`📱 General search approach for: ${appName}`)
+  return await startParallelScraping(appName, scrapingSessionId, redditSearchName, enabledPlatforms, userSearchTerm, selectedAppName)
 }
 
 // Scrape specific iOS app
@@ -408,9 +418,10 @@ async function scrapeSpecificAndroidApp(appInfo: any, scrapingSessionId: string)
 }
 
 // Search Reddit for specific app
-async function scrapeRedditForApp(appName: string, scrapingSessionId: string) {
+async function scrapeRedditForApp(appName: string, scrapingSessionId: string, userSearchTerm?: string, selectedAppName?: string) {
   try {
     console.log(`🎯 Calling Reddit scraper with app name: "${appName}"`)
+    console.log(`🎯 User search term: "${userSearchTerm || 'not provided'}", Selected app: "${selectedAppName || 'not provided'}"`)
     
     const response = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/scrape-reddit`, {
       method: 'POST',
@@ -419,7 +430,8 @@ async function scrapeRedditForApp(appName: string, scrapingSessionId: string) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ 
-        appName, // 🔑 这里传递的是用户提供的原始名称
+        appName: selectedAppName || appName, // 🆕 使用selectedAppName作为app名称  
+        userSearchTerm: userSearchTerm, // 🆕 传递用户搜索词
         scrapingSessionId,
         maxPosts: 400 // 🆕 增加Reddit评论上限到400
       })
@@ -439,7 +451,7 @@ async function scrapeRedditForApp(appName: string, scrapingSessionId: string) {
   return []
 }
 
-function startParallelScraping(appName: string, scrapingSessionId: string, redditSearchName?: string, enabledPlatforms?: string[]) {
+function startParallelScraping(appName: string, scrapingSessionId: string, redditSearchName?: string, enabledPlatforms?: string[], userSearchTerm?: string, selectedAppName?: string) {
   const baseUrl = Deno.env.get('SUPABASE_URL')
   const authHeader = `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')}`
   
@@ -541,7 +553,8 @@ function startParallelScraping(appName: string, scrapingSessionId: string, reddi
   // Reddit Promise (只在启用时创建)
   if (isRedditEnabled) {
     const redditRequestBody = JSON.stringify({ 
-      appName: redditSearchName || appName, 
+      appName: selectedAppName || redditSearchName || appName, // 🆕 使用selectedAppName作为app名称
+      userSearchTerm: userSearchTerm, // 🆕 传递用户搜索词 
       scrapingSessionId,
       maxPosts: 400 // 🆕 增加Reddit评论上限到400
     })

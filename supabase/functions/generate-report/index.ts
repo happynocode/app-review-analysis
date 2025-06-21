@@ -9,6 +9,8 @@ const corsHeaders = {
 interface GenerateReportRequest {
   reportId: string
   appName: string
+  userSearchTerm?: string // 🆕 用户的原始搜索词
+  selectedAppName?: string // 🆕 用户选择的app名称
   appInfo?: any // Single app detailed information
   selectedApps?: any[] // Multiple apps information
   redditOnly?: boolean // 🆕 仅 Reddit 分析标识
@@ -38,6 +40,8 @@ Deno.serve(async (req) => {
     const { 
       reportId, 
       appName, 
+      userSearchTerm,
+      selectedAppName,
       appInfo, 
       selectedApps, 
       redditOnly,
@@ -114,10 +118,12 @@ Deno.serve(async (req) => {
       console.log(`🎯 Reddit-only analysis mode enabled for "${appName}"`)
     }
 
-    // Update report status to processing
+    // Update report status to processing (user_search_term, selected_app_name, enabled_platforms already set during INSERT)
     await supabaseClient
       .from('reports')
-      .update({ status: 'processing' })
+      .update({ 
+        status: 'processing'
+      })
       .eq('id', reportId)
 
     // 🆕 Create scraping session with platform configuration
@@ -126,6 +132,8 @@ Deno.serve(async (req) => {
       .insert({
         report_id: reportId,
         app_name: appName,
+        user_search_term: userSearchTerm,
+        selected_app_name: selectedAppName,
         status: 'pending',
         enabled_platforms: finalEnabledPlatforms,
         analysis_config: finalAnalysisConfig,
@@ -149,10 +157,12 @@ Deno.serve(async (req) => {
       reportId, 
       appName,
       scrapingSession.id, 
+      userSearchTerm,
+      selectedAppName,
       appInfo, 
       selectedApps,
-      finalEnabledPlatforms, // 🆕 传递启用的平台列表
-      finalAnalysisConfig // 🆕 传递完整的分析配置
+      finalEnabledPlatforms,
+      finalAnalysisConfig
     ))
 
     return new Response(
@@ -188,6 +198,8 @@ async function initiateScrapingProcess(
   reportId: string, 
   userProvidedAppName: string,
   scrapingSessionId: string, 
+  userSearchTerm?: string, // 🆕 用户搜索词，可选
+  selectedAppName?: string, // 🆕 选中的app名称，可选
   appInfo?: any,
   selectedApps?: any[],
   enabledPlatforms?: string[], // 🆕 启用的平台列表
@@ -214,6 +226,8 @@ async function initiateScrapingProcess(
       body: JSON.stringify({
         reportId,
         appName: userProvidedAppName,
+        userSearchTerm: userSearchTerm,
+        selectedAppName: selectedAppName,
         scrapingSessionId,
         appInfo,
         selectedApps,

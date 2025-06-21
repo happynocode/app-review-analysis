@@ -67,17 +67,17 @@ export const LandingPage: React.FC = () => {
     try {
       // Create a report based on selected apps and platforms
       let reportName: string
-      let appName: string
+      let selectedAppName: string
       
       if (selectedApps.length === 1) {
         // Single app analysis
         reportName = selectedApps[0].name
-        appName = selectedApps[0].name
+        selectedAppName = selectedApps[0].name
       } else if (selectedApps.length > 1) {
         // Multiple apps analysis
         const appNames = selectedApps.map(app => app.name).join(', ')
         reportName = `${companyName} (${selectedApps.length} apps)`
-        appName = appNames
+        selectedAppName = appNames
       } else {
         // Platform-only analysis (no specific apps)
         reportName = `${companyName} (${enabledPlatforms.map(p => 
@@ -85,10 +85,16 @@ export const LandingPage: React.FC = () => {
           p === 'google_play' ? 'Android' : 
           p === 'reddit' ? 'Reddit' : p
         ).join(', ')})`
-        appName = companyName
+        selectedAppName = companyName
       }
       
-      const report = await createNewReport(user!.id, reportName)
+      const report = await createNewReport(
+        user!.id, 
+        reportName, 
+        companyName, // userSearchTerm
+        selectedAppName, // selectedAppName  
+        enabledPlatforms // enabledPlatforms
+      )
 
       // Start report generation
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-report`, {
@@ -99,7 +105,9 @@ export const LandingPage: React.FC = () => {
         },
         body: JSON.stringify({
           reportId: report.id,
-          appName: appName,
+          appName: reportName,
+          userSearchTerm: companyName,
+          selectedAppName: selectedAppName,
           appInfo: selectedApps.length === 1 ? selectedApps[0] : undefined,
           selectedApps: selectedApps.length > 1 ? selectedApps : undefined,
           enabledPlatforms: enabledPlatforms,

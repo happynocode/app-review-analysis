@@ -33,6 +33,9 @@ export interface Report {
   id: string
   user_id: string
   app_name: string
+  user_search_term?: string
+  selected_app_name?: string
+  enabled_platforms?: string[]
   status: 'pending' | 'processing' | 'scraping' | 'scraping_completed' | 'analyzing' | 'completed' | 'failed' | 'error'
   created_at: string
   completed_at: string | null
@@ -55,7 +58,13 @@ interface ReportState {
   updateReport: (reportId: string, updates: Partial<Report>) => void
   fetchUserReports: (userId: string) => Promise<void>
   fetchReport: (reportId: string) => Promise<void>
-  createNewReport: (userId: string, appName: string) => Promise<Report>
+  createNewReport: (
+    userId: string, 
+    appName: string, 
+    userSearchTerm?: string, 
+    selectedAppName?: string, 
+    enabledPlatforms?: string[]
+  ) => Promise<Report>
 }
 
 export const useReportStore = create<ReportState>((set, get) => ({
@@ -170,9 +179,15 @@ export const useReportStore = create<ReportState>((set, get) => ({
     }
   },
 
-  createNewReport: async (userId: string, appName: string) => {
+  createNewReport: async (
+    userId: string, 
+    appName: string, 
+    userSearchTerm?: string, 
+    selectedAppName?: string, 
+    enabledPlatforms?: string[]
+  ) => {
     try {
-      const report = await createReport(userId, appName)
+      const report = await createReport(userId, appName, userSearchTerm, selectedAppName, enabledPlatforms)
       get().addReport(report)
       return report
     } catch (error) {
