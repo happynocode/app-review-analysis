@@ -333,7 +333,13 @@ QUALITY STANDARDS:
 ${platformNames[platform].toUpperCase()} REVIEWS (${reviewTexts.length} reviews for ${appName}):
 ${reviewTexts.map((text, i) => `Review ${i + 1}: ${text}`).join('\n\n')}
 
-REQUIRED OUTPUT FORMAT (return ONLY valid JSON, no markdown):
+CRITICAL OUTPUT REQUIREMENTS:
+🚨 You MUST return ONLY valid JSON - no markdown, no explanatory text, no code blocks
+🚨 Start your response with { and end with }
+🚨 Do not include markdown code blocks or backticks
+🚨 Do not add any text before or after the JSON
+
+REQUIRED JSON FORMAT:
 {
   "themes": [
     {
@@ -351,12 +357,13 @@ REQUIRED OUTPUT FORMAT (return ONLY valid JSON, no markdown):
   ]
 }
 
-IMPORTANT: 
-- Return 20-50 themes based on the data quality and diversity (focus on extracting meaningful patterns)
-- Ensure each theme has 2-3 representative quotes from the actual reviews
+VALIDATION RULES:
+- Return 20-50 themes based on data quality and diversity
+- Each theme title must be 2+ words (not single words like "json", "reddit")
+- Ensure each theme has 2-3 representative quotes from actual reviews
 - Make suggestions specific and actionable, not generic advice
-- Return only the JSON object, no additional text or markdown formatting
-- Consider this is ${platformNames[platform]} specific feedback when creating themes`
+- Consider this is ${platformNames[platform]} specific feedback when creating themes
+- NO MARKDOWN FORMATTING - PURE JSON ONLY`
 
   return prompt
 }
@@ -381,7 +388,7 @@ async function callDeepSeekAPI(prompt: string) {
         messages: [
           {
             role: 'system',
-            content: 'You are an expert product analyst specializing in user feedback analysis. Always return valid JSON without markdown formatting.'
+            content: 'You are an expert product analyst specializing in user feedback analysis. You MUST return valid JSON without markdown formatting or additional text. Only return the JSON object with themes array. Do not include any explanatory text before or after the JSON.'
           },
           {
             role: 'user',
@@ -389,8 +396,8 @@ async function callDeepSeekAPI(prompt: string) {
           }
         ],
         stream: false,
-        max_tokens: 6000, // 增加max_tokens以支持更多themes
-        temperature: 0.3, // Lower temperature for more consistent JSON output
+        max_tokens: 6000,
+        temperature: 0.1, // 大幅降低温度以提高JSON格式的一致性
       }),
       signal: controller.signal
     })
@@ -409,45 +416,81 @@ async function callDeepSeekAPI(prompt: string) {
       throw new Error('No content in DeepSeek response')
     }
 
-    // Parse JSON response with improved error handling
+    console.log('🔍 Raw DeepSeek response preview:', content.substring(0, 300) + '...')
+
+    // 改进的JSON解析逻辑
     try {
-      // Try to extract JSON from markdown code blocks if present
       let cleanContent = content.trim()
       
-      // Remove markdown code blocks
+      // 移除可能的markdown格式
       if (cleanContent.startsWith('```json') && cleanContent.endsWith('```')) {
         cleanContent = cleanContent.slice(7, -3).trim()
       } else if (cleanContent.startsWith('```') && cleanContent.endsWith('```')) {
         cleanContent = cleanContent.slice(3, -3).trim()
       }
       
+      // 更aggressive地寻找JSON对象
+      const jsonStart = cleanContent.indexOf('{')
+      const jsonEnd = cleanContent.lastIndexOf('}')
+      
+      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+        cleanContent = cleanContent.slice(jsonStart, jsonEnd + 1)
+      }
+      
+      // 移除可能的前后缀文本
+      cleanContent = cleanContent.replace(/^[^{]*/, '').replace(/[^}]*$/, '')
+      
+      console.log('🧹 Cleaned content preview:', cleanContent.substring(0, 300) + '...')
+      
       const result = JSON.parse(cleanContent)
       
-      // Validate the structure
-      if (result.themes && Array.isArray(result.themes)) {
-        return result
-      } else {
-        throw new Error('Invalid themes structure in response')
+      // 严格验证结构
+      if (result.themes && Array.isArray(result.themes) && result.themes.length > 0) {
+        // 验证每个theme的结构并过滤无效的
+        const validThemes = result.themes.filter(theme => {
+          const isValid = theme.title && 
+                         typeof theme.title === 'string' && 
+                         theme.title.trim().length > 2 && 
+                         theme.title.trim().length < 200 && // 避免过长的标题
+                         theme.description && 
+                         typeof theme.description === 'string' &&
+                         theme.description.trim().length > 10 &&
+                         // 确保是有意义的主题标题，不是单个词汇
+                         theme.title.split(' ').length >= 2 &&
+                         !theme.title.toLowerCase().match(/^(json|reddit|app|store|google|play|analysis|result|themes?|title|description|quotes|suggestions)$/i)
+          
+          if (!isValid) {
+            console.warn(`🚨 Filtered invalid theme: "${theme.title}" (reason: ${
+              !theme.title ? 'no title' :
+              typeof theme.title !== 'string' ? 'title not string' :
+              theme.title.trim().length <= 2 ? 'title too short' :
+              theme.title.trim().length >= 200 ? 'title too long' :
+              !theme.description ? 'no description' :
+              typeof theme.description !== 'string' ? 'description not string' :
+              theme.description.trim().length <= 10 ? 'description too short' :
+              theme.title.split(' ').length < 2 ? 'single word title' :
+              'matches blacklisted words'
+            })`)
+          }
+          return isValid
+        })
+        
+        if (validThemes.length > 0) {
+          console.log(`✅ Successfully parsed ${validThemes.length} valid themes`)
+          return { themes: validThemes }
+        } else {
+          console.warn('⚠️ No valid themes found after filtering')
+        }
       }
+      
+      throw new Error('Invalid or empty themes structure in response')
       
     } catch (parseError) {
-      console.warn('Failed to parse JSON, attempting to extract themes from text:', parseError.message)
+      console.error('❌ JSON parsing failed:', parseError.message)
+      console.log('🔍 Full problematic content:', content)
       
-      // Try to extract structured information from the raw text
-      const extractedThemes = extractThemesFromText(content)
-      if (extractedThemes.length > 0) {
-        return { themes: extractedThemes }
-      }
-      
-      // Fallback: return raw content as a single theme
-      return { 
-        themes: [{ 
-          title: 'Analysis Result', 
-          description: content.length > 500 ? content.substring(0, 500) + '...' : content, 
-          quotes: [], 
-          suggestions: ['Review the analysis output', 'Consider refining the prompt'] 
-        }] 
-      }
+      // 不再使用有问题的extractThemesFromText，直接抛出错误
+      throw new Error(`DeepSeek returned invalid JSON format: ${parseError.message}. Please check the API response format. Content preview: ${content.substring(0, 200)}...`)
     }
 
   } catch (error) {
@@ -459,58 +502,10 @@ async function callDeepSeekAPI(prompt: string) {
   }
 }
 
-// Extract themes from raw text when JSON parsing fails
-function extractThemesFromText(content: string): any[] {
-  const themes: any[] = []
-  
-  // Try to find theme-like patterns in the text
-  const lines = content.split('\n').filter(line => line.trim().length > 0)
-  
-  let currentTheme: any = null
-  for (const line of lines) {
-    const trimmed = line.trim()
-    
-    // Look for theme titles (lines that start with numbers, bullets, or are short and descriptive)
-    if (trimmed.match(/^\d+\.?\s+/) || trimmed.match(/^[-*•]\s+/) || (trimmed.length < 100 && !trimmed.includes('.'))) {
-      // Save previous theme if exists
-      if (currentTheme) {
-        themes.push(currentTheme)
-      }
-      
-      // Start new theme
-      currentTheme = {
-        title: trimmed.replace(/^\d+\.?\s+|^[-*•]\s+/, '').trim(),
-        description: '',
-        quotes: [],
-        suggestions: []
-      }
-    } else if (currentTheme && trimmed.length > 0) {
-      // Add to description
-      if (currentTheme.description) {
-        currentTheme.description += ' ' + trimmed
-      } else {
-        currentTheme.description = trimmed
-      }
-    }
-  }
-  
-  // Add the last theme
-  if (currentTheme) {
-    themes.push(currentTheme)
-  }
-  
-  // If no themes found, try to create one from the whole content
-  if (themes.length === 0 && content.trim().length > 0) {
-    themes.push({
-      title: 'User Feedback Analysis',
-      description: content.length > 300 ? content.substring(0, 300) + '...' : content,
-      quotes: [],
-      suggestions: []
-    })
-  }
-  
-  return themes.slice(0, 50) // 增加限制到50个themes
-}
+// 移除了有问题的extractThemesFromText函数
+// 这个函数会把"json"、"Reddit"等单词错误识别为主题标题
+// 问题出在这个条件：(trimmed.length < 100 && !trimmed.includes('.'))
+// 它会把任何短于100字符且不包含句号的文本都当作主题标题
 
 async function logSystemMetric(
   supabaseClient: any, 

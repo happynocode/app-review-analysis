@@ -357,12 +357,14 @@ Deno.serve(async (req: Request) => {
     
     // 统计平台分布
     const redditCount = scrapedReviews.filter(r => r.platform === 'reddit').length;
-    const storeCount = scrapedReviews.filter(r => r.platform === 'app_store' || r.platform === 'google_play').length;
+    const appStoreCount = scrapedReviews.filter(r => r.platform === 'app_store').length;
+    const googlePlayCount = scrapedReviews.filter(r => r.platform === 'google_play').length;
     const redditBatches = Math.ceil(redditCount / 50);
-    const storeBatches = Math.ceil(storeCount / 400);
+    const appStoreBatches = Math.ceil(appStoreCount / 400);
+    const googlePlayBatches = Math.ceil(googlePlayCount / 400);
 
     console.log(`🔄 启动数据库触发器模式 - 总共 ${totalBatches} 个批次`);
-    console.log(`📊 批次分布: Reddit ${redditBatches}批(${redditCount}条), 应用商店 ${storeBatches}批(${storeCount}条)`);
+    console.log(`📊 批次分布: Reddit ${redditBatches}批(${redditCount}条), App Store ${appStoreBatches}批(${appStoreCount}条), Google Play ${googlePlayBatches}批(${googlePlayCount}条)`);
 
     // 6. 只启动第一批处理，后续由数据库触发器自动处理
     const firstBatchTasks = analysisTasks.slice(0, Math.min(4, analysisTasks.length));
@@ -507,14 +509,37 @@ async function createAnalysisTasks(
     }
   }
 
-  // 处理App Store和Google Play评论 - 400个一批
-  const storeReviews = [...platformGroups.app_store, ...platformGroups.google_play];
-  if (storeReviews.length > 0) {
-    const storeBatchSize = 400;
-    console.log(`🍎 处理应用商店评论: ${storeReviews.length}条，每批${storeBatchSize}个`);
+  // 处理App Store评论 - 400个一批
+  if (platformGroups.app_store.length > 0) {
+    const appStoreBatchSize = 400;
+    console.log(`🍎 处理App Store评论: ${platformGroups.app_store.length}条，每批${appStoreBatchSize}个`);
     
-    for (let i = 0; i < storeReviews.length; i += storeBatchSize) {
-      const batchReviews = storeReviews.slice(i, i + storeBatchSize);
+    for (let i = 0; i < platformGroups.app_store.length; i += appStoreBatchSize) {
+      const batchReviews = platformGroups.app_store.slice(i, i + appStoreBatchSize);
+      
+      const task = {
+        report_id: reportId,
+        scraping_session_id: scrapingSessionId,
+        batch_index: globalBatchIndex++,
+        analysis_type: 'themes',
+        reviews_data: batchReviews,
+        status: 'pending',
+        priority: 7,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      
+      tasks.push(task);
+    }
+  }
+
+  // 处理Google Play评论 - 400个一批
+  if (platformGroups.google_play.length > 0) {
+    const googlePlayBatchSize = 400;
+    console.log(`🤖 处理Google Play评论: ${platformGroups.google_play.length}条，每批${googlePlayBatchSize}个`);
+    
+    for (let i = 0; i < platformGroups.google_play.length; i += googlePlayBatchSize) {
+      const batchReviews = platformGroups.google_play.slice(i, i + googlePlayBatchSize);
       
       const task = {
         report_id: reportId,
