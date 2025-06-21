@@ -33,6 +33,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <Router
+        basename={import.meta.env.DEV ? '' : '/app-review-analysis'}
         future={{
           v7_startTransition: true,
           v7_relativeSplatPath: true,

@@ -282,8 +282,9 @@ export const ReportPage: React.FC = () => {
       
       if (error) throw error
       
-      // Create shareable URL
-      const shareableUrl = `${window.location.origin}/report/${reportId}?public=true`
+      // Create shareable URL with proper base path for GitHub Pages
+      const basePath = import.meta.env.DEV ? '' : '/app-review-analysis'
+      const shareableUrl = `${window.location.origin}${basePath}/report/${reportId}?public=true`
       
       // Copy to clipboard
       await navigator.clipboard.writeText(shareableUrl)
