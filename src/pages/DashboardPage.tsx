@@ -413,8 +413,8 @@ export const DashboardPage: React.FC = () => {
                             size="sm"
                             onClick={() => {
                               const message = report.failure_stage === 'scraping' 
-                                ? `抓取失败：${report.error_message}\n\n建议：${report.failure_details?.suggestion || '请尝试使用不同的关键词'}`
-                                : `分析失败：${report.error_message}\n\n原因：${report.failure_details?.reason || '系统错误'}`
+                                ? `Scraping failed: ${report.error_message}\n\nSuggestion: ${report.failure_details?.suggestion || 'Please try using different keywords'}`
+                                : `Analysis failed: ${report.error_message}\n\nReason: ${report.failure_details?.reason || 'System error'}`
                               alert(message)
                             }}
                             className="text-gray-400 hover:text-gray-300"

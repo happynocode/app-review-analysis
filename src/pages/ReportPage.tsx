@@ -1,15 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Download, Share2, Calendar, BarChart3, Activity, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Download, Share2, Calendar, BarChart3, RefreshCw } from 'lucide-react'
 import { ThemeCard } from '../components/ThemeCard'
 import { SidebarNav } from '../components/SidebarNav'
-import { MonitoringDashboard } from '../components/MonitoringDashboard'
+
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { useReportStore } from '../stores/reportStore'
 import { supabase } from '../lib/supabase'
+import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
 
 interface ProcessingProgress {
   report_id: string
@@ -25,17 +27,26 @@ interface ProcessingProgress {
 export const ReportPage: React.FC = () => {
   const { reportId } = useParams()
   const navigate = useNavigate()
-  const { currentReport, loading, fetchReport } = useReportStore()
+  const { currentReport, loading, fetchReport, setCurrentReport, setLoading } = useReportStore()
   const themeRefs = useRef<(HTMLDivElement | null)[]>([])
-  const [activeTab, setActiveTab] = useState<'report' | 'monitoring'>('report')
+  const [activeTab, setActiveTab] = useState<'report'>('report')
   const [activePlatform, setActivePlatform] = useState<'all' | 'reddit' | 'app_store' | 'google_play'>('all')
   const [processingProgress, setProcessingProgress] = useState<ProcessingProgress | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
   useEffect(() => {
     if (reportId) {
-      fetchReport(reportId)
-      fetchProcessingProgress()
+      // Check if this is a public report access
+      const urlParams = new URLSearchParams(location.search)
+      const isPublicAccess = urlParams.get('public') === 'true'
+      
+      if (isPublicAccess) {
+        // For public access, fetch report directly without user authentication
+        fetchPublicReport(reportId)
+      } else {
+        // Regular authenticated access
+        fetchReport(reportId)
+      }
     }
   }, [reportId, fetchReport])
 
@@ -90,7 +101,7 @@ export const ReportPage: React.FC = () => {
           completed_batches: completedBatches,
           progress_percentage: progressPercentage,
           estimated_completion: estimatedCompletion,
-          current_stage: processingBatches > 0 ? `正在处理批次 ${completedBatches + 1}/${totalBatches}` : '等待处理',
+          current_stage: processingBatches > 0 ? `Processing batch ${completedBatches + 1}/${totalBatches}` : 'Waiting for processing',
         })
       } else {
         setProcessingProgress(null)
@@ -116,15 +127,173 @@ export const ReportPage: React.FC = () => {
     })
   }
 
-  const handleDownload = () => {
-    // Implement report download functionality
-    console.log('Downloading report...')
+  const handleDownload = async () => {
+    if (!currentReport) return
+    
+    try {
+      // Create a new jsPDF instance
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const pageHeight = pdf.internal.pageSize.getHeight()
+      const margin = 20
+      let yPosition = margin
+      
+      // Title
+      pdf.setFontSize(24)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text(`${currentReport.user_search_term || currentReport.app_name} Analysis Report`, margin, yPosition)
+      yPosition += 15
+      
+      // Date
+      pdf.setFontSize(12)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(`Generated: ${new Date(currentReport.created_at).toLocaleDateString()}`, margin, yPosition)
+      yPosition += 20
+      
+      // Overview
+      pdf.setFontSize(16)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('Analysis Overview', margin, yPosition)
+      yPosition += 10
+      
+      pdf.setFontSize(11)
+      pdf.setFont('helvetica', 'normal')
+      const overviewText = `This report analyzes user reviews and feedback for ${currentReport.user_search_term || currentReport.app_name} across multiple platforms including App Store, Google Play, and Reddit. We've identified the top themes that users discuss most frequently, along with representative quotes and actionable product suggestions.`
+      const splitOverview = pdf.splitTextToSize(overviewText, pageWidth - 2 * margin)
+      pdf.text(splitOverview, margin, yPosition)
+      yPosition += splitOverview.length * 5 + 15
+      
+      // Platform Statistics
+      const platformStats = getPlatformStats()
+      pdf.setFontSize(16)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text('Platform Statistics', margin, yPosition)
+      yPosition += 10
+      
+      pdf.setFontSize(11)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(`Total Themes: ${platformStats.total}`, margin, yPosition)
+      yPosition += 7
+      pdf.text(`Reddit: ${platformStats.reddit} themes`, margin, yPosition)
+      yPosition += 7
+      pdf.text(`App Store: ${platformStats.app_store} themes`, margin, yPosition)
+      yPosition += 7
+      pdf.text(`Google Play: ${platformStats.google_play} themes`, margin, yPosition)
+      yPosition += 20
+      
+      // Themes
+      const themes = getCurrentThemes()
+      if (themes && themes.length > 0) {
+        pdf.setFontSize(16)
+        pdf.setFont('helvetica', 'bold')
+        pdf.text('Key Themes', margin, yPosition)
+        yPosition += 15
+        
+        themes.forEach((theme, index) => {
+          // Check if we need a new page
+          if (yPosition > pageHeight - 50) {
+            pdf.addPage()
+            yPosition = margin
+          }
+          
+          // Theme title
+          pdf.setFontSize(14)
+          pdf.setFont('helvetica', 'bold')
+          pdf.text(`${index + 1}. ${theme.title}`, margin, yPosition)
+          yPosition += 10
+          
+          // Platform badge
+          pdf.setFontSize(10)
+          pdf.setFont('helvetica', 'normal')
+          const platformName = getPlatformName(theme.platform)
+          pdf.text(`Platform: ${platformName}`, margin + 5, yPosition)
+          yPosition += 8
+          
+          // Description
+          pdf.setFontSize(11)
+          pdf.setFont('helvetica', 'normal')
+          const splitDescription = pdf.splitTextToSize(theme.description, pageWidth - 2 * margin - 5)
+          pdf.text(splitDescription, margin + 5, yPosition)
+          yPosition += splitDescription.length * 5 + 5
+          
+          // Representative quote
+          if (theme.quotes && theme.quotes.length > 0) {
+            pdf.setFontSize(10)
+            pdf.setFont('helvetica', 'italic')
+            pdf.text('Representative Quote:', margin + 5, yPosition)
+            yPosition += 6
+            
+            const splitQuote = pdf.splitTextToSize(`"${theme.quotes[0].text}"`, pageWidth - 2 * margin - 10)
+            pdf.text(splitQuote, margin + 10, yPosition)
+            yPosition += splitQuote.length * 4 + 5
+          }
+          
+          // Product suggestions
+          if (theme.suggestions && theme.suggestions.length > 0) {
+            pdf.setFontSize(10)
+            pdf.setFont('helvetica', 'bold')
+            pdf.text('Product Suggestions:', margin + 5, yPosition)
+            yPosition += 6
+            
+            pdf.setFont('helvetica', 'normal')
+            theme.suggestions.forEach((suggestion, idx) => {
+              if (idx < 3) { // Limit to first 3 suggestions
+                const splitSuggestion = pdf.splitTextToSize(`• ${suggestion.text}`, pageWidth - 2 * margin - 10)
+                pdf.text(splitSuggestion, margin + 10, yPosition)
+                yPosition += splitSuggestion.length * 4 + 3
+              }
+            })
+            yPosition += 5
+          }
+          
+          yPosition += 5
+        })
+      }
+      
+      // Footer
+      const totalPages = pdf.getNumberOfPages()
+      for (let i = 1; i <= totalPages; i++) {
+        pdf.setPage(i)
+        pdf.setFontSize(8)
+        pdf.setFont('helvetica', 'normal')
+        pdf.text(`Page ${i} of ${totalPages}`, pageWidth - margin - 20, pageHeight - 10)
+        pdf.text('Generated by App Review Analysis', margin, pageHeight - 10)
+      }
+      
+      // Save the PDF
+      const fileName = `${currentReport.user_search_term || currentReport.app_name}_Analysis_Report.pdf`
+      pdf.save(fileName)
+      
+    } catch (error) {
+      console.error('Error generating PDF:', error)
+      alert('Failed to generate PDF. Please try again.')
+    }
   }
 
-  const handleShare = () => {
-    // Implement share functionality
-    navigator.clipboard.writeText(window.location.href)
-    // Show toast notification
+  const handleShare = async () => {
+    if (!currentReport) return
+    
+    try {
+      // Make the report public by updating its public flag
+      const { error } = await supabase
+        .from('reports')
+        .update({ is_public: true })
+        .eq('id', reportId)
+      
+      if (error) throw error
+      
+      // Create shareable URL
+      const shareableUrl = `${window.location.origin}/report/${reportId}?public=true`
+      
+      // Copy to clipboard
+      await navigator.clipboard.writeText(shareableUrl)
+      
+      // Show success message
+      alert('Shareable link copied to clipboard! Anyone with this link can view the report.')
+    } catch (error) {
+      console.error('Error sharing report:', error)
+      alert('Failed to create shareable link. Please try again.')
+    }
   }
 
   // 获取当前显示的themes
@@ -193,6 +362,84 @@ export const ReportPage: React.FC = () => {
     }
   }
 
+  const fetchPublicReport = async (reportId: string) => {
+    setLoading(true)
+    try {
+      // Check if report is public
+      const { data: report, error: reportError } = await supabase
+        .from('reports')
+        .select('*')
+        .eq('id', reportId)
+        .eq('is_public', true)
+        .single()
+
+      if (reportError) throw new Error('Report not found or not public')
+
+      // Fetch themes for public report
+      const { data: themes, error: themesError } = await supabase
+        .from('themes')
+        .select(`
+          id,
+          title,
+          description,
+          platform,
+          quotes (
+            id,
+            text,
+            source,
+            review_date
+          ),
+          suggestions (
+            id,
+            text
+          )
+        `)
+        .eq('report_id', reportId)
+        .order('created_at', { ascending: true })
+
+      if (themesError) throw themesError
+
+      // Group themes by platform
+      const platformThemes: { reddit: any[], app_store: any[], google_play: any[] } = {
+        reddit: [],
+        app_store: [],
+        google_play: []
+      }
+
+      if (themes) {
+        for (const theme of themes) {
+          const themeWithDetails = {
+            ...theme,
+            quotes: theme.quotes || [],
+            suggestions: theme.suggestions || []
+          }
+
+          if (theme.platform === 'reddit') {
+            platformThemes.reddit.push(themeWithDetails)
+          } else if (theme.platform === 'app_store') {
+            platformThemes.app_store.push(themeWithDetails)
+          } else if (theme.platform === 'google_play') {
+            platformThemes.google_play.push(themeWithDetails)
+          }
+        }
+      }
+
+      const allThemes = [...platformThemes.reddit, ...platformThemes.app_store, ...platformThemes.google_play]
+
+      setCurrentReport({
+        ...report,
+        themes: allThemes,
+        platformThemes
+      })
+      setLoading(false)
+    } catch (error) {
+      console.error('Error fetching public report:', error)
+      setLoading(false)
+      // Redirect to 404 or show error message
+      navigate('/')
+    }
+  }
+
   if (loading) {
     return <LoadingSpinner message="Loading report..." />
   }
@@ -236,20 +483,14 @@ export const ReportPage: React.FC = () => {
             </div>
             
             <div className="flex items-center space-x-3">
-              <Button
-                variant={activeTab === 'monitoring' ? 'primary' : 'secondary'}
-                onClick={() => setActiveTab('monitoring')}
-                icon={Activity}
-              >
-                监控
-              </Button>
+
               <Button
                 variant="secondary"
                 onClick={handleRefresh}
                 icon={RefreshCw}
                 disabled={isRefreshing}
               >
-                {isRefreshing ? '刷新中...' : '刷新'}
+                {isRefreshing ? 'Refreshing...' : 'Refresh'}
               </Button>
               <Button variant="secondary" onClick={handleShare} icon={Share2}>
                 Share
@@ -263,24 +504,10 @@ export const ReportPage: React.FC = () => {
       </header>
 
       <div className="max-w-7xl mx-auto px-6 py-8">
-        {/* Tab Navigation */}
-        <div className="flex space-x-4 mb-6">
-          <Button
-            variant={activeTab === 'report' ? 'primary' : 'ghost'}
-            onClick={() => setActiveTab('report')}
-          >
-            分析报告
-          </Button>
-          <Button
-            variant={activeTab === 'monitoring' ? 'primary' : 'ghost'}
-            onClick={() => setActiveTab('monitoring')}
-          >
-            系统监控
-          </Button>
-        </div>
+
 
         {/* Processing Progress Bar */}
-        {processingProgress && activeTab === 'report' && (
+        {processingProgress && (
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -308,17 +535,17 @@ export const ReportPage: React.FC = () => {
               
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-blue-700">
                 <div>
-                  <span className="font-medium">总批次:</span> {processingProgress.total_batches}
+                  <span className="font-medium">Total Batches:</span> {processingProgress.total_batches}
                 </div>
                 <div>
-                  <span className="font-medium">已完成:</span> {processingProgress.completed_batches}
+                  <span className="font-medium">Completed:</span> {processingProgress.completed_batches}
                 </div>
                 <div>
-                  <span className="font-medium">剩余:</span> {processingProgress.total_batches - processingProgress.completed_batches}
+                  <span className="font-medium">Remaining:</span> {processingProgress.total_batches - processingProgress.completed_batches}
                 </div>
                 {processingProgress.estimated_completion && (
                   <div>
-                    <span className="font-medium">预计完成:</span> {processingProgress.estimated_completion}
+                    <span className="font-medium">Estimated Completion:</span> {processingProgress.estimated_completion}
                   </div>
                 )}
               </div>
@@ -326,9 +553,7 @@ export const ReportPage: React.FC = () => {
           </motion.div>
         )}
 
-        {activeTab === 'monitoring' ? (
-          <MonitoringDashboard />
-        ) : (
+{/* Report Content */}
           <div className="grid lg:grid-cols-4 gap-8">
             {/* Main Content */}
             <div className="lg:col-span-3 space-y-6">
@@ -439,7 +664,6 @@ export const ReportPage: React.FC = () => {
               )}
             </div>
           </div>
-        )}
       </div>
     </div>
   )

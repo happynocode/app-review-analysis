@@ -44,15 +44,15 @@ export const AppSelectionModal: React.FC<AppSelectionModalProps> = ({
 }) => {
   const [searchResult, setSearchResult] = useState<SearchResult | null>(null)
   const [selectedApps, setSelectedApps] = useState<Set<string>>(new Set())
-  const [includeReddit, setIncludeReddit] = useState(true) // Reddit默认选中
-  const [timeFilterDays, setTimeFilterDays] = useState(90) // 默认90天
+  const [includeReddit, setIncludeReddit] = useState(true) // Reddit selected by default
+  const [timeFilterDays, setTimeFilterDays] = useState(90) // Default 90 days
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
     if (isOpen && companyName) {
       searchApps()
-      // 重置状态
+      // Reset state
       setSelectedApps(new Set())
       setIncludeReddit(true)
     }
@@ -100,16 +100,16 @@ export const AppSelectionModal: React.FC<AppSelectionModalProps> = ({
     setIncludeReddit(!includeReddit)
   }
 
-  // 根据用户选择的应用自动推断启用的平台
+      // Auto-detect enabled platforms based on user selected app
   const getEnabledPlatforms = (): string[] => {
     const platforms: string[] = []
     
-    // 如果选择了Reddit，添加reddit平台
+    // Add reddit platform if Reddit is selected
     if (includeReddit) {
       platforms.push('reddit')
     }
     
-    // 根据选择的应用推断平台
+    // Infer platforms based on selected app
     if (searchResult && selectedApps.size > 0) {
       const allApps = [...searchResult.iosApps, ...searchResult.androidApps]
       const selected = allApps.filter(app => selectedApps.has(app.id))

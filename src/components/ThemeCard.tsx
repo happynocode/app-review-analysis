@@ -12,7 +12,7 @@ interface ThemeCardProps {
 export const ThemeCard: React.FC<ThemeCardProps> = ({ theme, index }) => {
   const [isExpanded, setIsExpanded] = useState(false)
 
-  // 获取平台显示信息
+  // Get platform display info
   const getPlatformInfo = (platform: string) => {
     switch (platform) {
       case 'reddit':
