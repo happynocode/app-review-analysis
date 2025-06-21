@@ -287,11 +287,31 @@ Deno.serve(async (req: Request) => {
     const scrapedReviews = applyIntelligentFiltering(allReviews, report.app_name);
 
     if (!scrapedReviews?.length) {
+      // 更新报告状态为failed，并提供详细的错误信息
+      const { error: updateError } = await supabase
+        .from('reports')
+        .update({
+          status: 'failed',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', reportId);
+
+      if (updateError) {
+        console.error('更新报告状态失败:', updateError.message);
+      }
+
       return new Response(JSON.stringify({
         success: false,
-        error: '没有找到抓取的评论数据'
+        error: '没有找到可分析的评论数据',
+        details: {
+          totalScrapedReviews: allReviews.length,
+          filteredReviews: scrapedReviews?.length || 0,
+          suggestion: allReviews.length === 0 
+            ? '抓取过程中没有找到相关评论，请尝试使用不同的应用名称或关键词' 
+            : '抓取到的评论在质量筛选后被过滤掉了，请尝试使用更通用的应用名称'
+        }
       }), {
-        status: 404,
+        status: 400,
         headers: { 'Content-Type': 'application/json' }
       });
     }
@@ -342,25 +362,43 @@ Deno.serve(async (req: Request) => {
       const startSuccess = await startFirstBatch(reportId, firstBatchTasks, supabaseUrl, supabaseKey);
       
       if (!startSuccess) {
+        // 如果第一批启动失败，将报告状态改为failed
+        await supabase
+          .from('reports')
+          .update({
+            status: 'failed',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', reportId);
+          
         throw new Error('启动第一批处理失败');
       }
+    } else {
+      // 如果没有任务可处理，直接将报告状态改为completed
+      await supabase
+        .from('reports')
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', reportId);
+        
+      return new Response(JSON.stringify({
+        success: true,
+        message: '没有需要处理的分析任务',
+        result: {
+          reportId,
+          totalBatches: 0,
+          startedBatches: 0,
+          estimatedTime: 0,
+          status: 'completed',
+          reviewCount: scrapedReviews.length
+        }
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
-
-    return new Response(JSON.stringify({
-      success: true,
-      message: '分析任务已启动（数据库触发器模式）',
-      result: {
-        reportId,
-        totalBatches,
-        startedBatches: 1,
-        estimatedTime: totalBatches * 30, // 估算时间
-        status: 'started',
-        mode: 'database_trigger',
-        reviewCount: scrapedReviews.length
-      }
-    }), {
-      headers: { 'Content-Type': 'application/json' }
-    });
 
   } catch (error: any) {
     console.error('❌ 分析启动失败:', error);
