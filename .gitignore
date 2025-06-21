@@ -23,3 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# Supabase temp files
+supabase/.temp/
+
+cron_jobs.sql

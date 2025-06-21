@@ -8,7 +8,7 @@ const corsHeaders = {
 
 // RapidAPI配置
 const RAPIDAPI_HOST = Deno.env.get('RAPIDAPI_HOST') || 'store-apps.p.rapidapi.com'
-const RAPIDAPI_KEY = Deno.env.get('RAPIDAPI_KEY') || '6a22c48d26mshc2903f9b3ae63d6p138580jsn2c79360ec545'
+const RAPIDAPI_KEY = Deno.env.get('RAPIDAPI_KEY')
 
 interface ScrapeRequest {
   appName: string
@@ -252,6 +252,10 @@ Deno.serve(async (req) => {
     console.log(`🌍 Region: US only`)
     console.log(`🔑 RapidAPI Host: ${RAPIDAPI_HOST}`)
     console.log(`🔑 RapidAPI Key: ${RAPIDAPI_KEY ? 'Configured' : 'Missing'}`)
+  
+  if (!RAPIDAPI_KEY) {
+    throw new Error('RAPIDAPI_KEY environment variable is required')
+  }
 
     let reviews: Review[] = []
     let errorDetails = ''
