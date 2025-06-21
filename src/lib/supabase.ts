@@ -3,11 +3,34 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file.')
+// Debug logging for environment variables (only in development)
+if (import.meta.env.DEV) {
+  console.log('Environment check:', {
+    hasUrl: !!supabaseUrl,
+    hasKey: !!supabaseAnonKey,
+    url: supabaseUrl ? `${supabaseUrl.substring(0, 20)}...` : 'undefined',
+    key: supabaseAnonKey ? `${supabaseAnonKey.substring(0, 20)}...` : 'undefined'
+  })
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+// Export configuration status
+export const isConfigured = !!(supabaseUrl && supabaseAnonKey)
+
+export const configError = !isConfigured ? `Missing Supabase environment variables:
+  VITE_SUPABASE_URL: ${supabaseUrl ? 'SET' : 'MISSING'}
+  VITE_SUPABASE_ANON_KEY: ${supabaseAnonKey ? 'SET' : 'MISSING'}
+  
+  For GitHub Pages deployment, make sure you have added these as repository secrets:
+  - VITE_SUPABASE_URL
+  - VITE_SUPABASE_ANON_KEY
+  
+  For local development, create a .env.local file with these variables.` : null
+
+// Create supabase client with fallback values
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder-key'
+)
 
 export type Database = {
   public: {

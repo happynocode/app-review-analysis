@@ -7,6 +7,8 @@ import { ReportPage } from './pages/ReportPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { DemoPage } from './pages/DemoPage'
 import { LoadingSpinner } from './components/LoadingSpinner'
+import { ConfigError } from './components/ConfigError'
+import { isConfigured, configError } from './lib/supabase'
 
 const queryClient = new QueryClient()
 
@@ -14,8 +16,15 @@ function App() {
   const { initialize, loading } = useAuthStore()
 
   useEffect(() => {
-    initialize()
+    if (isConfigured) {
+      initialize()
+    }
   }, [initialize])
+
+  // Show configuration error if Supabase is not properly configured
+  if (!isConfigured && configError) {
+    return <ConfigError error={configError} />
+  }
 
   if (loading) {
     return <LoadingSpinner message="Initializing..." />
