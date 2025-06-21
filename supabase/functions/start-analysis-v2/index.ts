@@ -292,6 +292,15 @@ Deno.serve(async (req: Request) => {
         .from('reports')
         .update({
           status: 'failed',
+          failure_stage: 'scraping',
+          error_message: '没有找到可分析的评论数据',
+          failure_details: {
+            totalScrapedReviews: allReviews.length,
+            filteredReviews: scrapedReviews?.length || 0,
+            suggestion: allReviews.length === 0 
+              ? '抓取过程中没有找到相关评论，请尝试使用不同的应用名称或关键词' 
+              : '抓取到的评论在质量筛选后被过滤掉了，请尝试使用更通用的应用名称'
+          },
           updated_at: new Date().toISOString()
         })
         .eq('id', reportId);
@@ -367,6 +376,12 @@ Deno.serve(async (req: Request) => {
           .from('reports')
           .update({
             status: 'failed',
+            failure_stage: 'analysis',
+            error_message: '启动第一批处理失败',
+            failure_details: {
+              reason: '无法启动分析任务',
+              suggestion: '请检查系统状态或重试'
+            },
             updated_at: new Date().toISOString()
           })
           .eq('id', reportId);
@@ -528,4 +543,4 @@ async function createAnalysisTasks(
   }
   
   return insertedTasks || [];
-} 
+}

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Clock, CheckCircle, XCircle, BarChart3, Calendar, ArrowRight, RefreshCw, Trash2, AlertTriangle } from 'lucide-react'
+import { Plus, Clock, CheckCircle, XCircle, BarChart3, Calendar, ArrowRight, RefreshCw, Trash2, AlertTriangle, Activity, X } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { LoadingSpinner } from '../components/LoadingSpinner'
@@ -33,22 +33,43 @@ export const DashboardPage: React.FC = () => {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'completed':
-        return <CheckCircle className="w-5 h-5 text-green-400" />
+        return <CheckCircle className="w-4 h-4 text-green-400" />
       case 'processing':
-        return <Clock className="w-5 h-5 text-yellow-400 animate-spin" />
+        return <Clock className="w-4 h-4 text-yellow-400 animate-spin" />
+      case 'scraping':
+        return <Activity className="w-4 h-4 text-blue-400 animate-pulse" />
+      case 'scraping_completed':
+        return <Activity className="w-4 h-4 text-blue-600" />
+      case 'analyzing':
+        return <BarChart3 className="w-4 h-4 text-purple-400 animate-pulse" />
+      case 'failed':
+        return <X className="w-4 h-4 text-red-400" />
       case 'error':
-        return <XCircle className="w-5 h-5 text-red-400" />
+        return <X className="w-4 h-4 text-red-400" />
       default:
-        return <Clock className="w-5 h-5 text-gray-400" />
+        return <Clock className="w-4 h-4 text-white/40" />
     }
   }
 
-  const getStatusText = (status: string) => {
+  const getStatusText = (status: string, report?: any) => {
     switch (status) {
       case 'completed':
         return 'Completed'
       case 'processing':
         return 'Processing'
+      case 'scraping':
+        return 'Scraping Data'
+      case 'scraping_completed':
+        return 'Scraping Complete'
+      case 'analyzing':
+        return 'Analyzing Reviews'
+      case 'failed':
+        if (report?.failure_stage === 'scraping') {
+          return 'Scraping Failed (No Data)'
+        } else if (report?.failure_stage === 'analysis') {
+          return 'Analysis Failed'
+        }
+        return 'Failed'
       case 'error':
         return 'Error'
       default:
@@ -311,7 +332,7 @@ export const DashboardPage: React.FC = () => {
                         </div>
                         <div className="flex items-center">
                           {getStatusIcon(report.status)}
-                          <span className="ml-1">{getStatusText(report.status)}</span>
+                          <span className="ml-1">{getStatusText(report.status, report)}</span>
                         </div>
                       </div>
                     </div>
@@ -328,20 +349,39 @@ export const DashboardPage: React.FC = () => {
                         View Report
                       </Button>
                     )}
-                    {report.status === 'processing' && (
+                    {(report.status === 'processing' || report.status === 'scraping' || report.status === 'scraping_completed' || report.status === 'analyzing') && (
                       <div className="text-yellow-400 text-sm flex items-center">
                         <Clock className="w-4 h-4 mr-1 animate-spin" />
-                        Processing...
+                        {report.status === 'scraping' ? 'Scraping...' : 
+                         report.status === 'scraping_completed' ? 'Starting analysis...' :
+                         report.status === 'analyzing' ? 'Analyzing...' : 'Processing...'}
                       </div>
                     )}
-                    {report.status === 'error' && (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => handleRetryReport(report.id, report.app_name)}
-                      >
-                        Retry
-                      </Button>
+                    {(report.status === 'error' || report.status === 'failed') && (
+                      <div className="flex items-center space-x-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleRetryReport(report.id, report.app_name)}
+                        >
+                          Retry
+                        </Button>
+                        {report.failure_details && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const message = report.failure_stage === 'scraping' 
+                                ? `抓取失败：${report.error_message}\n\n建议：${report.failure_details?.suggestion || '请尝试使用不同的关键词'}`
+                                : `分析失败：${report.error_message}\n\n原因：${report.failure_details?.reason || '系统错误'}`
+                              alert(message)
+                            }}
+                            className="text-gray-400 hover:text-gray-300"
+                          >
+                            Details
+                          </Button>
+                        )}
+                      </div>
                     )}
                   </div>
                 </motion.div>

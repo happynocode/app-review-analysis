@@ -33,11 +33,14 @@ export interface Report {
   id: string
   user_id: string
   app_name: string
-  status: 'pending' | 'processing' | 'completed' | 'error'
+  status: 'pending' | 'processing' | 'scraping' | 'scraping_completed' | 'analyzing' | 'completed' | 'failed' | 'error'
   created_at: string
   completed_at: string | null
   themes?: Theme[]
   platformThemes?: PlatformThemes
+  error_message?: string
+  failure_stage?: 'scraping' | 'analysis' | 'completion'
+  failure_details?: any
 }
 
 interface ReportState {
