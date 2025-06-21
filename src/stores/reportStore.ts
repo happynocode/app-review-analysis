@@ -36,6 +36,7 @@ export interface Report {
   user_search_term?: string
   selected_app_name?: string
   enabled_platforms?: string[]
+  time_filter_days?: number
   status: 'pending' | 'processing' | 'scraping' | 'scraping_completed' | 'analyzing' | 'completed' | 'failed' | 'error'
   created_at: string
   completed_at: string | null
@@ -63,7 +64,8 @@ interface ReportState {
     appName: string, 
     userSearchTerm?: string, 
     selectedAppName?: string, 
-    enabledPlatforms?: string[]
+    enabledPlatforms?: string[],
+    timeFilterDays?: number
   ) => Promise<Report>
 }
 
@@ -184,10 +186,11 @@ export const useReportStore = create<ReportState>((set, get) => ({
     appName: string, 
     userSearchTerm?: string, 
     selectedAppName?: string, 
-    enabledPlatforms?: string[]
+    enabledPlatforms?: string[],
+    timeFilterDays?: number
   ) => {
     try {
-      const report = await createReport(userId, appName, userSearchTerm, selectedAppName, enabledPlatforms)
+      const report = await createReport(userId, appName, userSearchTerm, selectedAppName, enabledPlatforms, timeFilterDays)
       get().addReport(report)
       return report
     } catch (error) {

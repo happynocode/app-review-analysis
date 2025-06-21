@@ -32,7 +32,8 @@ export const createReport = async (
   appName: string, 
   userSearchTerm?: string, 
   selectedAppName?: string, 
-  enabledPlatforms?: string[]
+  enabledPlatforms?: string[],
+  timeFilterDays?: number
 ) => {
   const { data, error } = await supabase
     .from('reports')
@@ -42,6 +43,7 @@ export const createReport = async (
       user_search_term: userSearchTerm,
       selected_app_name: selectedAppName,
       enabled_platforms: enabledPlatforms || ['app_store', 'google_play', 'reddit'],
+      time_filter_days: timeFilterDays || 90,
       status: 'pending'
     })
     .select()
@@ -54,7 +56,7 @@ export const createReport = async (
 export const getUserReports = async (userId: string) => {
   const { data, error } = await supabase
     .from('reports')
-    .select('*, user_search_term, selected_app_name, enabled_platforms')
+    .select('*, user_search_term, selected_app_name, enabled_platforms, time_filter_days')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
 

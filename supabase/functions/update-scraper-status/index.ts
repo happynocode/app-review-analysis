@@ -142,11 +142,7 @@ async function handleAutoDetect(supabase: any, scrapingSessionId?: string, repor
     if (allEnabledComplete && session.status === 'running') {
       updates.status = 'completed'
       updates.completed_at = new Date().toISOString()
-      updates.total_reviews_found = stats.total
-      updates.app_store_reviews = stats.app_store
-      updates.google_play_reviews = stats.google_play
-      updates.reddit_posts = stats.reddit
-      statusUpdates.push(`session: running -> completed (${stats.total} total reviews)`)
+      statusUpdates.push(`session: running -> completed`)
     }
 
     // 应用更新

@@ -191,15 +191,12 @@ async function performScraping(
       
       const scrapedData = await performRedditOnlyScraping(redditSearchName || appName, scrapingSessionId)
       
-      // 更新 Reddit scraper 状态为完成
+      // 更新 Reddit scraper 状态为完成（删除review数量字段）
       await supabaseClient
         .from('scraping_sessions')
         .update({
           reddit_scraper_status: 'completed',
-          reddit_completed_at: new Date().toISOString(),
-          total_reviews_found: scrapedData.totalReviews,
-          reddit_posts: scrapedData.reddit.length,
-          updated_at: new Date().toISOString()
+          reddit_completed_at: new Date().toISOString()
         })
         .eq('id', scrapingSessionId)
 
@@ -229,15 +226,12 @@ async function performScraping(
     console.log(`- Google Play: ${scrapedData.googlePlay.length}`)
     console.log(`- Reddit: ${scrapedData.reddit.length} (searched for: "${redditSearchName || appName}")`)
     
-    // Update scraping session with totals (不再更新为completed，让cron-scraping-monitor来处理)
+    // Update scraping session status (删除review数量字段)
     await supabaseClient
       .from('scraping_sessions')
       .update({
-        total_reviews_found: scrapedData.totalReviews,
-        app_store_reviews: scrapedData.appStore.length,
-        google_play_reviews: scrapedData.googlePlay.length,
-        reddit_posts: scrapedData.reddit.length,
-        updated_at: new Date().toISOString()
+        status: 'completed',
+        completed_at: new Date().toISOString()
       })
       .eq('id', scrapingSessionId)
 
@@ -433,7 +427,7 @@ async function scrapeRedditForApp(appName: string, scrapingSessionId: string, us
         appName: selectedAppName || appName, // 🆕 使用selectedAppName作为app名称  
         userSearchTerm: userSearchTerm, // 🆕 传递用户搜索词
         scrapingSessionId,
-        maxPosts: 400 // 🆕 增加Reddit评论上限到400
+        // 移除maxPosts限制，让scrape-reddit获取所有可用数据
       })
     })
 
@@ -556,7 +550,7 @@ function startParallelScraping(appName: string, scrapingSessionId: string, reddi
       appName: selectedAppName || redditSearchName || appName, // 🆕 使用selectedAppName作为app名称
       userSearchTerm: userSearchTerm, // 🆕 传递用户搜索词 
       scrapingSessionId,
-      maxPosts: 400 // 🆕 增加Reddit评论上限到400
+              // 移除maxPosts限制，让scrape-reddit获取所有可用数据
     })
     const redditPromise = fetch(`${baseUrl}/functions/v1/scrape-reddit`, {
       method: 'POST',

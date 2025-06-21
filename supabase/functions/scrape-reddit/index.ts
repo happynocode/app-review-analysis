@@ -15,7 +15,7 @@ interface ScrapeRequest {
   appName: string // 用户选择的应用名称（从应用列表中选择的完整名称）
   userSearchTerm?: string // 🆕 用户在搜索框输入的原始关键词
   scrapingSessionId?: string
-  maxPosts?: number
+  maxPosts?: number // 移除默认限制
 }
 
 interface RedditPost {
@@ -32,6 +32,15 @@ interface RedditPost {
   postId?: string
   gilded?: number
   isStickied?: boolean
+}
+
+// 搜索任务接口
+interface SearchTask {
+  term: string
+  subreddit?: string
+  limit: number
+  priority: number // 1=highest, 3=lowest
+  type: 'global' | 'subreddit' | 'app-specific' | 'pattern'
 }
 
 class RedditAPIClient {
@@ -204,11 +213,85 @@ class RedditAPIClient {
   }
 }
 
+// 并行批处理器
+class BatchProcessor {
+  private maxConcurrency: number
+  private batchDelay: number
+  private requestTimeout: number
+
+  constructor(maxConcurrency = 8, batchDelay = 300, requestTimeout = 10000) {
+    this.maxConcurrency = maxConcurrency
+    this.batchDelay = batchDelay
+    this.requestTimeout = requestTimeout
+  }
+
+  // 并行执行搜索任务
+  async processBatches<T>(
+    tasks: Array<() => Promise<T>>,
+    onProgress?: (completed: number, total: number) => void
+  ): Promise<T[]> {
+    const results: T[] = []
+    let completed = 0
+
+    for (let i = 0; i < tasks.length; i += this.maxConcurrency) {
+      const batch = tasks.slice(i, i + this.maxConcurrency)
+      
+      console.log(`🔄 Processing batch ${Math.floor(i / this.maxConcurrency) + 1}/${Math.ceil(tasks.length / this.maxConcurrency)} (${batch.length} tasks)`)
+      
+      try {
+        // 并行执行当前批次的任务
+        const batchResults = await Promise.allSettled(
+          batch.map(task => this.withTimeout(task(), this.requestTimeout))
+        )
+
+        // 收集成功的结果
+        for (const result of batchResults) {
+          if (result.status === 'fulfilled' && result.value) {
+            results.push(result.value)
+          } else if (result.status === 'rejected') {
+            console.warn(`⚠️ Task failed:`, result.reason?.message || 'Unknown error')
+          }
+        }
+
+        completed += batch.length
+        onProgress?.(completed, tasks.length)
+
+        // 批次间延迟
+        if (i + this.maxConcurrency < tasks.length) {
+          await this.delay(this.batchDelay)
+        }
+
+      } catch (error) {
+        console.error(`❌ Batch processing error:`, error)
+      }
+    }
+
+    return results
+  }
+
+  // 超时包装器
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs)
+    })
+    
+    return Promise.race([promise, timeoutPromise])
+  }
+
+  private async delay(ms: number): Promise<void> {
+    await new Promise(resolve => setTimeout(resolve, ms))
+  }
+}
+
 class OptimizedRedditScraper {
   private apiClient: RedditAPIClient
+  private batchProcessor: BatchProcessor
+  private seenPostIds: Set<string>
 
   constructor() {
     this.apiClient = new RedditAPIClient()
+    this.batchProcessor = new BatchProcessor(8, 300, 12000) // 8并发，300ms批次延迟，12秒超时
+    this.seenPostIds = new Set()
   }
 
   // 🆕 简化的关键词生成：只使用核心词汇+特定后缀
@@ -465,15 +548,16 @@ class OptimizedRedditScraper {
     return uniqueSubreddits
   }
 
-  // 🚀 增强的主搜索方法：扩展的 Reddit API 策略
-  async scrapeReddit(userSearchTerm?: string, appName?: string, maxPosts: number = 400): Promise<RedditPost[]> {
+  // 🚀 优化的主搜索方法：并行批处理策略
+  async scrapeReddit(userSearchTerm?: string, appName?: string, maxPosts?: number): Promise<RedditPost[]> {
     const allPosts: RedditPost[] = []
     
-    console.log(`\n🚀 === ENHANCED REDDIT SCRAPER (EXPANDED API STRATEGY) ===`)
+    console.log(`\n🚀 === OPTIMIZED PARALLEL REDDIT SCRAPER ===`)
     console.log(`👤 User search term: "${userSearchTerm || 'not provided'}"`)
     console.log(`📱 App name: "${appName || 'not provided'}"`)
     console.log(`🔑 Reddit API: ${REDDIT_CLIENT_ID ? 'Configured' : 'Not configured'}`)
-    console.log(`📊 Target max posts: ${maxPosts}`)
+    console.log(`📊 Target max posts: ${maxPosts || 'unlimited - scraping all posts'}`)
+    console.log(`⚡ Parallel processing: 8 concurrent requests`)
     console.log(`⏰ Start Time: ${new Date().toISOString()}`)
 
     // 检查API可用性
@@ -482,134 +566,148 @@ class OptimizedRedditScraper {
       return []
     }
 
+    // 清空已见帖子ID集合
+    this.seenPostIds.clear()
+
     const searchTerms = this.generateOptimizedSearchTerms(userSearchTerm, appName)
     const generalSubreddits = this.getTargetSubreddits()
     const appSpecificSubreddits = this.generateAppSpecificSubreddits(userSearchTerm, appName)
-    const allSubreddits = [...generalSubreddits, ...appSpecificSubreddits]
 
-    console.log(`🌍 Total search terms: ${searchTerms.length}`)
+    console.log(`🎯 Search terms generated: ${searchTerms.length}`)
     console.log(`📡 General subreddits: ${generalSubreddits.length}`)
-    console.log(`🎯 App-specific subreddits: ${appSpecificSubreddits.length}`)
-    console.log(`📊 Total subreddits to search: ${allSubreddits.length}`)
+    console.log(`🎪 App-specific subreddits: ${appSpecificSubreddits.length}`)
 
     try {
-      // 策略1: 扩展的全局搜索 - 更多关键词
-      console.log(`\n🌍 === ENHANCED GLOBAL SEARCH ===`)
-      for (const term of searchTerms.slice(0, 15)) { // 增加到15个关键词
-        console.log(`🔍 Global search for: "${term}"`)
-        const apiPosts = await this.apiClient.searchWithAPI(term, undefined, 60) // 增加每次搜索的数量
-        allPosts.push(...apiPosts)
-        console.log(`✅ Global search "${term}": ${apiPosts.length} posts`)
-        await this.delay(1000)
+      // 创建搜索任务队列
+      const searchTasks: SearchTask[] = []
+
+      // 1. 全局搜索任务 (最高优先级)
+      for (const term of searchTerms.slice(0, 15)) {
+        searchTasks.push({
+          term,
+          limit: 100,
+          priority: 1,
+          type: 'global'
+        })
       }
 
-      // 策略2: 重点通用 subreddit 搜索
-      console.log(`\n📡 === ENHANCED TARGETED SUBREDDIT SEARCH ===`)
-      for (const subreddit of generalSubreddits.slice(0, 15)) { // 增加到15个通用subreddit
-        for (const term of searchTerms.slice(0, 8)) { // 每个subreddit搜索8个关键词
-          console.log(`🔍 r/${subreddit} search for: "${term}"`)
-          const subredditPosts = await this.apiClient.searchWithAPI(term, subreddit, 30)
-          allPosts.push(...subredditPosts)
-          console.log(`✅ r/${subreddit} "${term}": ${subredditPosts.length} posts`)
-          await this.delay(800) // 稍微减少延迟以提高效率
+      // 2. 热门subreddit搜索任务
+      const topSubreddits = generalSubreddits.slice(0, 12) // 选择最重要的12个
+      for (const subreddit of topSubreddits) {
+        for (const term of searchTerms.slice(0, 6)) { // 每个subreddit只搜索6个最重要的关键词
+          searchTasks.push({
+            term,
+            subreddit,
+            limit: 50,
+            priority: 2,
+            type: 'subreddit'
+          })
         }
       }
 
-      // 策略3: 应用特定 subreddit 搜索
-      console.log(`\n🎯 === APP-SPECIFIC SUBREDDIT SEARCH ===`)
-      for (const appSubreddit of appSpecificSubreddits) {
-        for (const term of searchTerms.slice(0, 6)) { // 每个应用特定subreddit搜索6个关键词
-          console.log(`🔍 r/${appSubreddit} search for: "${term}"`)
-          try {
-            const appSpecificPosts = await this.apiClient.searchWithAPI(term, appSubreddit, 20)
-            allPosts.push(...appSpecificPosts)
-            console.log(`✅ r/${appSubreddit} "${term}": ${appSpecificPosts.length} posts`)
-          } catch (error) {
-            // 某些应用特定的subreddit可能不存在，这是正常的
-            console.log(`⚠️ r/${appSubreddit} not found or accessible`)
-          }
-          await this.delay(800)
+      // 3. 应用特定subreddit搜索任务
+      for (const appSubreddit of appSpecificSubreddits.slice(0, 8)) { // 限制到8个应用特定subreddit
+        for (const term of searchTerms.slice(0, 4)) { // 每个应用subreddit搜索4个关键词
+          searchTasks.push({
+            term,
+            subreddit: appSubreddit,
+            limit: 30,
+            priority: 2,
+            type: 'app-specific'
+          })
         }
       }
 
-      // 策略4: 简化的高级搜索模式 - 只使用核心词汇+高价值后缀
-      console.log(`\n🔬 === SIMPLIFIED ADVANCED SEARCH ===`)
-      
-      // 确定核心搜索词
-      let coreSearchTerm = ''
-      if (userSearchTerm && userSearchTerm.trim().length > 0) {
-        coreSearchTerm = userSearchTerm.trim().toLowerCase()
-        console.log(`🎯 Using user search term for advanced patterns: "${coreSearchTerm}"`)
-      } else if (appName && appName.trim().length > 0) {
-        const appKeywords = this.extractSimpleAppKeywords(appName)
-        if (appKeywords.length > 0) {
-          coreSearchTerm = appKeywords[0]
-          console.log(`📱 Using app keyword for advanced patterns: "${coreSearchTerm}"`)
-        }
-      }
-      
-      // 如果有有效的核心搜索词，只搜索最高价值的组合
-      if (coreSearchTerm && coreSearchTerm.length > 2) {
-        const highValueSuffixes = ['vs', 'alternative', 'better than']
+      // 4. 高价值模式搜索任务
+      if (userSearchTerm || appName) {
+        const coreSearchTerm = userSearchTerm?.trim().toLowerCase() || 
+          this.extractSimpleAppKeywords(appName || '')[0]
         
-        for (const suffix of highValueSuffixes) {
-          const pattern = `${coreSearchTerm} ${suffix}`
-          console.log(`🔍 High-value pattern search: "${pattern}"`)
-          const patternPosts = await this.apiClient.searchWithAPI(pattern, undefined, 20)
-          allPosts.push(...patternPosts)
-          console.log(`✅ High-value pattern "${pattern}": ${patternPosts.length} posts`)
-          await this.delay(1000)
+        if (coreSearchTerm && coreSearchTerm.length > 2) {
+          const highValueSuffixes = ['vs', 'alternative', 'better than', 'review', 'opinion']
+          for (const suffix of highValueSuffixes) {
+            searchTasks.push({
+              term: `${coreSearchTerm} ${suffix}`,
+              limit: 40,
+              priority: 1,
+              type: 'pattern'
+            })
+          }
         }
       }
 
-      console.log(`✅ Enhanced Reddit API search completed: ${allPosts.length} posts collected`)
+      // 按优先级排序任务
+      searchTasks.sort((a, b) => a.priority - b.priority)
+
+      console.log(`📋 Total search tasks created: ${searchTasks.length}`)
+      console.log(`🔥 High priority tasks: ${searchTasks.filter(t => t.priority === 1).length}`)
+      console.log(`📊 Medium priority tasks: ${searchTasks.filter(t => t.priority === 2).length}`)
+
+      // 创建搜索函数
+      const searchFunctions = searchTasks.map(task => async () => {
+        try {
+          const posts = await this.apiClient.searchWithAPI(task.term, task.subreddit, task.limit)
+          
+          // 实时去重
+          const newPosts = posts.filter(post => {
+            const postKey = post.postId || `${post.title}_${post.author}_${post.date}`
+            if (this.seenPostIds.has(postKey)) {
+              return false
+            }
+            this.seenPostIds.add(postKey)
+            return true
+          })
+
+          console.log(`✅ ${task.type} "${task.term}"${task.subreddit ? ` in r/${task.subreddit}` : ''}: ${newPosts.length} new posts`)
+          return newPosts
+        } catch (error) {
+          console.warn(`⚠️ Search failed for "${task.term}": ${error.message}`)
+          return []
+        }
+      })
+
+      // 并行批处理执行
+      console.log(`\n⚡ === PARALLEL BATCH PROCESSING ===`)
+      const batchResults = await this.batchProcessor.processBatches(
+        searchFunctions,
+        (completed, total) => {
+          const percentage = ((completed / total) * 100).toFixed(1)
+          console.log(`📊 Progress: ${completed}/${total} tasks completed (${percentage}%)`)
+        }
+      )
+
+      // 收集所有结果
+      for (const posts of batchResults) {
+        if (Array.isArray(posts)) {
+          allPosts.push(...posts)
+        }
+      }
+
+      console.log(`✅ Parallel Reddit search completed: ${allPosts.length} unique posts collected`)
 
     } catch (error) {
-      console.error('❌ Enhanced Reddit API search failed:', error.message)
+      console.error('❌ Parallel Reddit search failed:', error.message)
     }
 
-    // 简单去重
-    const uniquePosts = this.deduplicatePosts(allPosts)
-    
-    console.log(`\n🎯 === ENHANCED REDDIT SCRAPING COMPLETED ===`)
-    console.log(`📊 Total posts collected: ${allPosts.length}`)
-    console.log(`✨ Final unique posts: ${uniquePosts.length}`)
-    console.log(`🔑 Enhanced API strategy used`)
-    console.log(`🌍 Global searches: ${Math.min(searchTerms.length, 10)}`)
-    console.log(`📡 General subreddits searched: ${Math.min(generalSubreddits.length, 15)}`)
-    console.log(`🎯 App-specific subreddits searched: ${appSpecificSubreddits.length}`)
-    console.log(`🔬 Advanced patterns searched: up to 6`)
-    console.log(`⏰ End Time: ${new Date().toISOString()}`)
-    
-    return uniquePosts.slice(0, maxPosts) // 限制最终数量
-  }
-
-  private async delay(ms: number): Promise<void> {
-    await new Promise(resolve => setTimeout(resolve, ms))
-  }
-
-  // 简单去重方法
-  private deduplicatePosts(posts: RedditPost[]): RedditPost[] {
-    const seen = new Set<string>()
-    const uniquePosts: RedditPost[] = []
-
-    for (const post of posts) {
-      // 使用帖子ID作为唯一标识符
-      const key = post.postId || `${post.title}_${post.author}_${post.date}`
-      
-      if (!seen.has(key) && post.text.length > 20) {
-        seen.add(key)
-        uniquePosts.push(post)
-      }
-    }
-
-    // 按相关性和分数排序
-    return uniquePosts.sort((a, b) => {
+    // 最终排序和限制
+    const sortedPosts = allPosts.sort((a, b) => {
       // 优先考虑分数
       if (b.score !== a.score) return b.score - a.score
       // 然后考虑评论数量
       return (b.commentCount || 0) - (a.commentCount || 0)
     })
+
+    const finalPosts = maxPosts ? sortedPosts.slice(0, maxPosts) : sortedPosts
+    
+    console.log(`\n🎯 === OPTIMIZED REDDIT SCRAPING COMPLETED ===`)
+    console.log(`📊 Total unique posts: ${allPosts.length}`)
+    console.log(`✨ Final posts (after limit): ${finalPosts.length}`)
+    console.log(`⚡ Parallel processing used`)
+    console.log(`🎯 Task-based search strategy`)
+    console.log(`🔄 Real-time deduplication`)
+    console.log(`⏰ End Time: ${new Date().toISOString()}`)
+    
+    return finalPosts
   }
 }
 
@@ -624,7 +722,7 @@ Deno.serve(async (req) => {
       appName, 
       userSearchTerm, // 🆕 接收用户原始搜索词
       scrapingSessionId, 
-      maxPosts = 400 
+      maxPosts // 移除默认的400限制 
     }: ScrapeRequest = await req.json()
 
     // 至少需要一个搜索条件
@@ -642,7 +740,7 @@ Deno.serve(async (req) => {
     console.log(`👤 User search term: "${userSearchTerm || 'not provided'}"`)
     console.log(`📱 App name: "${appName || 'not provided'}"`)
     console.log(`🔑 Reddit API status: ${REDDIT_CLIENT_ID ? 'Configured' : 'Not configured'}`)
-    console.log(`📊 Target max posts: ${maxPosts}`)
+    console.log(`📊 Target max posts: ${maxPosts || 'unlimited - scraping all posts'}`)
 
     const scraper = new OptimizedRedditScraper()
     const posts = await scraper.scrapeReddit(userSearchTerm, appName, maxPosts)
@@ -708,14 +806,30 @@ Deno.serve(async (req) => {
         }
 
         console.log(`✅ Successfully saved all ${postsToSave.length} Reddit posts to database`)
+        console.log(`📊 === REDDIT SCRAPING & SAVING SUMMARY ===`)
+        console.log(`🔍 Total posts scraped from Reddit API: ${posts.length}`)
+        console.log(`💾 Total posts saved to database: ${postsToSave.length}`)
+        console.log(`📈 Save success rate: ${postsToSave.length > 0 ? '100%' : '0%'}`)
+        console.log(`🎯 User search term: "${userSearchTerm || 'not provided'}"`)
+        console.log(`📱 App name used: "${appName || 'not provided'}"`)
+        console.log(`⏰ Scraping completed at: ${new Date().toISOString()}`)
 
-        // 更新scraper状态为completed
+        // 🆕 查询实际保存到数据库的reddit数量
+        const { count: actualSavedCount, error: countError } = await supabaseClient
+          .from('scraped_reviews')
+          .select('*', { count: 'exact', head: true })
+          .eq('scraping_session_id', scrapingSessionId)
+          .eq('platform', 'reddit');
+
+        const finalRedditCount = actualSavedCount || 0;
+        console.log(`📊 Reddit实际保存数量: ${finalRedditCount} (原计划: ${posts.length})`);
+
+        // 更新scraper状态为completed（删除review数量字段）
         await supabaseClient
           .from('scraping_sessions')
           .update({
             reddit_scraper_status: 'completed',
-            reddit_completed_at: new Date().toISOString(),
-            reddit_posts: posts.length
+            reddit_completed_at: new Date().toISOString()
           })
           .eq('id', scrapingSessionId)
 
@@ -748,7 +862,7 @@ Deno.serve(async (req) => {
     // 计算统计信息
     const stats = {
       totalPosts: posts.length,
-      targetMaxPosts: maxPosts,
+      targetMaxPosts: maxPosts || 'unlimited',
       subreddits: [...new Set(posts.map(p => p.subreddit))],
       averageScore: posts.length > 0 ? Math.round(posts.reduce((sum, p) => sum + p.score, 0) / posts.length) : 0,
       dateRange: posts.length > 0 ? {
@@ -765,19 +879,21 @@ Deno.serve(async (req) => {
     }
 
     console.log(`\n📊 === OPTIMIZED REDDIT SCRAPING STATISTICS ===`)
-    console.log(`✅ Total posts: ${stats.totalPosts}`)
+    console.log(`✅ Total posts scraped: ${stats.totalPosts}`)
     console.log(`🎯 Target was: ${stats.targetMaxPosts}`)
-    console.log(`📈 Achievement rate: ${((stats.totalPosts / stats.targetMaxPosts) * 100).toFixed(1)}%`)
+    console.log(`📈 Achievement rate: ${typeof stats.targetMaxPosts === 'number' ? ((stats.totalPosts / stats.targetMaxPosts) * 100).toFixed(1) + '%' : 'unlimited mode'}`)
     console.log(`📈 Average Reddit score: ${stats.averageScore}`)
     console.log(`🏷️ Subreddits found: ${stats.subreddits.length}`)
     console.log(`🔑 Reddit API used: ${stats.apiUsed}`)
     console.log(`🏆 Gilded posts: ${stats.gildedPosts}`)
+    console.log(`💾 Posts that will be saved to database: ${stats.totalPosts}`)
+    console.log(`⚡ Performance: Optimized parallel processing used`)
 
     return new Response(
       JSON.stringify({ 
         posts,
         stats,
-        message: `Enhanced Reddit scraping completed: ${posts.length} posts found using expanded API strategy with user search term "${userSearchTerm || 'not provided'}" and app keywords from "${appName || 'not provided'}"`,
+        message: `🚀 OPTIMIZED Reddit scraping completed: ${posts.length} posts scraped and saved to database using parallel processing with user search term "${userSearchTerm || 'not provided'}" and app keywords from "${appName || 'not provided'}"`,
         timestamp: new Date().toISOString(),
         scraper_version: 'enhanced_api_v7.0',
         search_optimization: {

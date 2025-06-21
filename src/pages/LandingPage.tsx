@@ -56,7 +56,7 @@ export const LandingPage: React.FC = () => {
     setShowAppSelection(true)
   }
 
-  const handleAppsSelected = async (selectedApps: AppInfo[], enabledPlatforms: string[]) => {
+  const handleAppsSelected = async (selectedApps: AppInfo[], enabledPlatforms: string[], timeFilterDays: number) => {
     if (enabledPlatforms.length === 0) {
       alert('Please select at least one platform for analysis')
       return
@@ -93,7 +93,8 @@ export const LandingPage: React.FC = () => {
         reportName, 
         companyName, // userSearchTerm
         selectedAppName, // selectedAppName  
-        enabledPlatforms // enabledPlatforms
+        enabledPlatforms, // enabledPlatforms
+        timeFilterDays // timeFilterDays
       )
 
       // Start report generation

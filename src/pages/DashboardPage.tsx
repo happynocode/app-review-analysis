@@ -328,6 +328,14 @@ export const DashboardPage: React.FC = () => {
                         {report.user_search_term || report.app_name}
                       </h3>
                       
+                      {report.selected_app_name && report.selected_app_name !== report.user_search_term && (
+                        <div className="text-sm text-white/70 mt-1">
+                          <span className="bg-green-500/20 text-green-300 px-2 py-1 rounded-md">
+                            App: {report.selected_app_name}
+                          </span>
+                        </div>
+                      )}
+                      
                       <div className="flex items-center space-x-4 text-sm text-white/60 mt-2">
                         <div className="flex items-center">
                           <Calendar className="w-4 h-4 mr-1" />
@@ -360,6 +368,13 @@ export const DashboardPage: React.FC = () => {
                             </div>
                           </div>
                         )}
+                        
+                        <div className="flex items-center">
+                          <Clock className="w-4 h-4 mr-1 text-blue-400" />
+                          <span className="text-blue-300 text-xs bg-blue-500/20 px-2 py-1 rounded">
+                            Past {report.time_filter_days || 90} days
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>

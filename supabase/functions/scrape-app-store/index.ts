@@ -695,13 +695,22 @@ Deno.serve(async (req) => {
 
         console.log(`✅ Successfully saved all ${reviewsToSave.length} reviews to database`)
 
-        // 🆕 更新scraper状态为completed
+        // 🆕 查询实际保存到数据库的App Store review数量
+        const { count: actualSavedCount, error: countError } = await supabaseClient
+          .from('scraped_reviews')
+          .select('*', { count: 'exact', head: true })
+          .eq('scraping_session_id', scrapingSessionId)
+          .eq('platform', 'app_store');
+
+        const finalAppStoreCount = actualSavedCount || 0;
+        console.log(`📊 App Store实际保存数量: ${finalAppStoreCount} (原计划: ${result.reviews.length})`);
+
+        // 🆕 更新scraper状态为completed（删除review数量字段）
         await supabaseClient
           .from('scraping_sessions')
           .update({
             app_store_scraper_status: 'completed',
-            app_store_completed_at: new Date().toISOString(),
-            app_store_reviews: result.reviews.length
+            app_store_completed_at: new Date().toISOString()
           })
           .eq('id', scrapingSessionId)
 

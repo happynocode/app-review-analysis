@@ -312,15 +312,11 @@ async function completeReportScraping(supabase: any, reportId: string, scrapingS
       throw new Error(`更新报告状态失败: ${reportError.message}`);
     }
 
-    // 更新抓取会话状态
+    // 更新抓取会话状态（删除review数量字段）
     const { error: sessionError } = await supabase
       .from('scraping_sessions')
       .update({
         status: 'completed',
-        total_reviews_found: stats.total_reviews,
-        app_store_reviews: stats.app_store_reviews,
-        google_play_reviews: stats.google_play_reviews,
-        reddit_posts: stats.reddit_posts,
         completed_at: new Date().toISOString()
       })
       .eq('id', scrapingSessionId);

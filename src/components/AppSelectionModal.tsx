@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Search, Smartphone, Apple, CheckCircle, ExternalLink, Star, Users, MessageCircle, ArrowRight } from 'lucide-react'
+import { X, Search, Smartphone, Apple, CheckCircle, ExternalLink, Star, Users, MessageCircle, ArrowRight, Calendar } from 'lucide-react'
 import { Button } from './ui/Button'
 import { LoadingSpinner } from './LoadingSpinner'
 
@@ -31,7 +31,7 @@ interface AppSelectionModalProps {
   isOpen: boolean
   onClose: () => void
   companyName: string
-  onAppsSelected: (selectedApps: AppInfo[], enabledPlatforms: string[]) => void
+  onAppsSelected: (selectedApps: AppInfo[], enabledPlatforms: string[], timeFilterDays: number) => void
   onRedditOnlySelected: () => void
 }
 
@@ -45,6 +45,7 @@ export const AppSelectionModal: React.FC<AppSelectionModalProps> = ({
   const [searchResult, setSearchResult] = useState<SearchResult | null>(null)
   const [selectedApps, setSelectedApps] = useState<Set<string>>(new Set())
   const [includeReddit, setIncludeReddit] = useState(true) // Reddit默认选中
+  const [timeFilterDays, setTimeFilterDays] = useState(90) // 默认90天
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -150,7 +151,7 @@ export const AppSelectionModal: React.FC<AppSelectionModalProps> = ({
     if (searchResult) {
       const allApps = [...searchResult.iosApps, ...searchResult.androidApps]
       const selected = allApps.filter(app => selectedApps.has(app.id))
-      onAppsSelected(selected, enabledPlatforms)
+      onAppsSelected(selected, enabledPlatforms, timeFilterDays)
     }
     onClose()
   }
@@ -311,6 +312,77 @@ export const AppSelectionModal: React.FC<AppSelectionModalProps> = ({
               </div>
             ) : (
               <div className="space-y-6">
+                {/* Time Filter Settings */}
+                <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+                    <Calendar className="w-5 h-5 mr-2" />
+                    Time Filter Settings
+                  </h3>
+                  <p className="text-white/60 text-sm mb-4">
+                    Set how far back in time to analyze reviews and discussions
+                  </p>
+                  
+                  <div className="flex items-center space-x-4">
+                    <label className="text-white font-medium">
+                      Analyze reviews from the past:
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="number"
+                        min="1"
+                        max="365"
+                        value={timeFilterDays}
+                        onChange={(e) => setTimeFilterDays(Math.max(1, Math.min(365, parseInt(e.target.value) || 90)))}
+                        className="w-20 px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-center focus:outline-none focus:border-[#2DD4BF] focus:bg-white/20"
+                      />
+                      <span className="text-white/70">days</span>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-3 flex space-x-2">
+                    <button
+                      onClick={() => setTimeFilterDays(30)}
+                      className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                        timeFilterDays === 30 
+                          ? 'bg-[#2DD4BF]/20 text-[#2DD4BF] border border-[#2DD4BF]/50' 
+                          : 'bg-white/10 text-white/60 border border-white/20 hover:bg-white/20'
+                      }`}
+                    >
+                      30 days
+                    </button>
+                    <button
+                      onClick={() => setTimeFilterDays(90)}
+                      className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                        timeFilterDays === 90 
+                          ? 'bg-[#2DD4BF]/20 text-[#2DD4BF] border border-[#2DD4BF]/50' 
+                          : 'bg-white/10 text-white/60 border border-white/20 hover:bg-white/20'
+                      }`}
+                    >
+                      90 days
+                    </button>
+                    <button
+                      onClick={() => setTimeFilterDays(180)}
+                      className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                        timeFilterDays === 180 
+                          ? 'bg-[#2DD4BF]/20 text-[#2DD4BF] border border-[#2DD4BF]/50' 
+                          : 'bg-white/10 text-white/60 border border-white/20 hover:bg-white/20'
+                      }`}
+                    >
+                      6 months
+                    </button>
+                    <button
+                      onClick={() => setTimeFilterDays(365)}
+                      className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                        timeFilterDays === 365 
+                          ? 'bg-[#2DD4BF]/20 text-[#2DD4BF] border border-[#2DD4BF]/50' 
+                          : 'bg-white/10 text-white/60 border border-white/20 hover:bg-white/20'
+                      }`}
+                    >
+                      1 year
+                    </button>
+                  </div>
+                </div>
+
                 {/* Reddit Option */}
                 <div className="bg-white/5 border border-white/10 rounded-xl p-6">
                   <h3 className="text-lg font-semibold text-white mb-4">

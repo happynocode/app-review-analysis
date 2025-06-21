@@ -1,9 +1,34 @@
+/**
+ * 智能评论分析启动器 v2
+ * 
+ * 主要功能：
+ * 1. 从 scraped_reviews 表获取原始评论数据
+ * 2. 应用智能筛选算法（去重、时间筛选、质量评分）
+ * 3. 记录详细的筛选统计信息到 scraping_sessions 表
+ * 4. 创建分析任务并启动第一批处理
+ * 
+ * 筛选过程：
+ * - 原始评论：从爬虫获取的所有评论
+ * - 去重处理：移除重复内容的评论
+ * - 时间筛选：只保留90天内的评论
+ * - 质量筛选：基于长度、评分、相关性的质量评分
+ * - 智能配额：Reddit 400条, App Store/Google Play 各2000条
+ * 
+ * 数据记录：
+ * - app_store_reviews: 原始抓取的App Store评论数
+ * - app_store_analysis_reviews: 筛选后发送分析的数量
+ * - filtering_stats: 完整的筛选过程统计信息
+ */
+
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 // 智能筛选算法（基于Reddit的质量评分系统）
-function applyIntelligentFiltering(reviews: any[], appName: string, maxTotal: number = 2000): any[] {
-  console.log(`🔧 开始智能筛选: ${reviews.length} 条原始评论 -> 目标 ${maxTotal} 条`);
+function applyIntelligentFiltering(reviews: any[], appName: string, timeFilterDays: number = 90, maxTotal: number = 2000): { 
+  filteredReviews: any[], 
+  stats: any 
+} {
+  console.log(`🔧 开始智能筛选: ${reviews.length} 条原始评论 -> 目标 ${maxTotal} 条 (时间筛选: ${timeFilterDays}天)`);
   
   // 显示原始平台分布
   const originalPlatformCounts = {
@@ -32,15 +57,28 @@ function applyIntelligentFiltering(reviews: any[], appName: string, maxTotal: nu
   };
   console.log(`📊 去重后平台分布: Reddit ${deduplicatedPlatformCounts.reddit}, App Store ${deduplicatedPlatformCounts.app_store}, Google Play ${deduplicatedPlatformCounts.google_play}`);
   
-  // 时间筛选：只保留90天内的评论
-  const ninetyDaysAgo = new Date();
-  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+  // 时间筛选：只保留指定天数内的评论
+  const filterDate = new Date();
+  filterDate.setDate(filterDate.getDate() - timeFilterDays);
+  
+  console.log(`⏰ [时间筛选执行] 开始应用 ${timeFilterDays} 天时间筛选，截止日期: ${filterDate.toISOString().split('T')[0]}`);
+  console.log(`⏰ [时间筛选执行] 筛选前评论总数: ${uniqueReviews.length}`);
+  
+  // 统计有日期和无日期的评论数量
+  const reviewsWithDate = uniqueReviews.filter(r => r.review_date);
+  const reviewsWithoutDate = uniqueReviews.filter(r => !r.review_date);
+  console.log(`⏰ [时间筛选执行] 有日期的评论: ${reviewsWithDate.length}, 无日期的评论: ${reviewsWithoutDate.length} (无日期的将被保留)`);
   
   const timeFilteredReviews = uniqueReviews.filter(review => {
     if (!review.review_date) return true; // 如果没有日期信息，保留
     const reviewDate = new Date(review.review_date);
-    return reviewDate >= ninetyDaysAgo;
+    return reviewDate >= filterDate;
   });
+  
+  // 计算被筛选掉的评论数量
+  const filteredOutCount = uniqueReviews.length - timeFilteredReviews.length;
+  console.log(`⏰ [时间筛选结果] 筛选后评论总数: ${timeFilteredReviews.length}`);
+  console.log(`⏰ [时间筛选结果] 被过滤掉的评论数量: ${filteredOutCount} (超过${timeFilterDays}天的旧评论)`);
   
   // 显示时间筛选后平台分布
   const timeFilteredPlatformCounts = {
@@ -48,7 +86,7 @@ function applyIntelligentFiltering(reviews: any[], appName: string, maxTotal: nu
     app_store: timeFilteredReviews.filter(r => r.platform === 'app_store').length,
     google_play: timeFilteredReviews.filter(r => r.platform === 'google_play').length
   };
-  console.log(`📊 90天时间筛选后平台分布: Reddit ${timeFilteredPlatformCounts.reddit}, App Store ${timeFilteredPlatformCounts.app_store}, Google Play ${timeFilteredPlatformCounts.google_play}`);
+  console.log(`📊 [时间筛选结果] ${timeFilterDays}天时间筛选后平台分布: Reddit ${timeFilteredPlatformCounts.reddit}, App Store ${timeFilteredPlatformCounts.app_store}, Google Play ${timeFilteredPlatformCounts.google_play}`);
   
   // 基础质量过滤（简化版：仅长度过滤）
   const appNameLower = appName.toLowerCase();
@@ -103,7 +141,58 @@ function applyIntelligentFiltering(reviews: any[], appName: string, maxTotal: nu
   console.log(`✅ 智能筛选完成: 最终选择 ${selectedReviews.length} 条高质量评论`);
   console.log(`📊 最终平台分布: Reddit ${finalPlatformCounts.reddit}, App Store ${finalPlatformCounts.app_store}, Google Play ${finalPlatformCounts.google_play}`);
   
-  return selectedReviews;
+  // 返回筛选结果和详细统计
+  const stats = {
+    original: {
+      total: reviews.length,
+      reddit: originalPlatformCounts.reddit,
+      app_store: originalPlatformCounts.app_store,
+      google_play: originalPlatformCounts.google_play
+    },
+    deduplicated: {
+      total: uniqueReviews.length,
+      reddit: deduplicatedPlatformCounts.reddit,
+      app_store: deduplicatedPlatformCounts.app_store,
+      google_play: deduplicatedPlatformCounts.google_play,
+      removed: reviews.length - uniqueReviews.length
+    },
+    timeFiltered: {
+      total: timeFilteredReviews.length,
+      reddit: timeFilteredPlatformCounts.reddit,
+      app_store: timeFilteredPlatformCounts.app_store,
+      google_play: timeFilteredPlatformCounts.google_play,
+      removed: uniqueReviews.length - timeFilteredReviews.length,
+      filterDays: timeFilterDays
+    },
+    qualityFiltered: {
+      total: filteredReviews.length,
+      reddit: qualityFilteredPlatformCounts.reddit,
+      app_store: qualityFilteredPlatformCounts.app_store,
+      google_play: qualityFilteredPlatformCounts.google_play,
+      removed: timeFilteredReviews.length - filteredReviews.length
+    },
+    final: {
+      total: selectedReviews.length,
+      reddit: finalPlatformCounts.reddit,
+      app_store: finalPlatformCounts.app_store,
+      google_play: finalPlatformCounts.google_play,
+      quotas: {
+        reddit: redditQuota,
+        app_store: appStoreQuota,
+        google_play: googlePlayQuota
+      }
+    },
+    processing: {
+      timestamp: new Date().toISOString(),
+      appName: appName,
+      filteringVersion: 'intelligent_v2.0'
+    }
+  };
+  
+  return {
+    filteredReviews: selectedReviews,
+    stats: stats
+  };
 }
 
 function simpleHash(str: string): string {
@@ -284,9 +373,41 @@ Deno.serve(async (req: Request) => {
     console.log(`📊 原始数据: 总共 ${allReviews.length} 条评论`);
 
     // 应用智能筛选算法（类似Reddit的质量筛选）
-    const scrapedReviews = applyIntelligentFiltering(allReviews, report.app_name);
+    // 首先计算真正的原始数量（按平台统计scraped_reviews表中的实际数据）
+    const originalStats = {
+      total: allReviews.length,
+      reddit: allReviews.filter(r => r.platform === 'reddit').length,
+      app_store: allReviews.filter(r => r.platform === 'app_store').length,
+      google_play: allReviews.filter(r => r.platform === 'google_play').length
+    };
 
-    if (!scrapedReviews?.length) {
+    console.log(`📊 原始抓取统计: 总计 ${originalStats.total}, Reddit ${originalStats.reddit}, App Store ${originalStats.app_store}, Google Play ${originalStats.google_play}`);
+
+    // 从报告中获取时间过滤天数
+    const timeFilterDays = report.time_filter_days || 90;
+    console.log(`🔍 [时间过滤配置] 从数据库读取 time_filter_days: ${report.time_filter_days}`);
+    console.log(`📅 [时间过滤配置] 最终使用时间过滤: ${timeFilterDays} 天 ${report.time_filter_days ? '(用户配置)' : '(默认值)'}`);
+    
+    // 显示将要筛选的时间范围
+    const filterDate = new Date();
+    filterDate.setDate(filterDate.getDate() - timeFilterDays);
+    console.log(`📆 [时间过滤配置] 筛选时间范围: ${filterDate.toISOString().split('T')[0]} 至 ${new Date().toISOString().split('T')[0]} (${timeFilterDays}天)`);
+
+    const { filteredReviews, stats } = applyIntelligentFiltering(allReviews, report.app_name, timeFilterDays);
+    
+    // 输出筛选完成的汇总日志
+    console.log(`✅ [时间筛选完成] 应用 ${timeFilterDays} 天时间筛选，从 ${allReviews.length} 条原始评论筛选为 ${filteredReviews.length} 条可分析评论`);
+    console.log(`📈 [筛选效果] 时间筛选保留率: ${allReviews.length > 0 ? Math.round((stats.timeFiltered.total / allReviews.length) * 100) : 0}%`);
+    
+    // 用真正的原始数据覆盖stats中的original字段
+    stats.original = {
+      total: originalStats.total,
+      reddit: originalStats.reddit,
+      app_store: originalStats.app_store,
+      google_play: originalStats.google_play
+    };
+
+    if (!filteredReviews?.length) {
       // 更新报告状态为failed，并提供详细的错误信息
       const { error: updateError } = await supabase
         .from('reports')
@@ -296,7 +417,7 @@ Deno.serve(async (req: Request) => {
           error_message: '没有找到可分析的评论数据',
           failure_details: {
             totalScrapedReviews: allReviews.length,
-            filteredReviews: scrapedReviews?.length || 0,
+            filteredReviews: filteredReviews?.length || 0,
             suggestion: allReviews.length === 0 
               ? '抓取过程中没有找到相关评论，请尝试使用不同的应用名称或关键词' 
               : '抓取到的评论在质量筛选后被过滤掉了，请尝试使用更通用的应用名称'
@@ -314,7 +435,7 @@ Deno.serve(async (req: Request) => {
         error: '没有找到可分析的评论数据',
         details: {
           totalScrapedReviews: allReviews.length,
-          filteredReviews: scrapedReviews?.length || 0,
+          filteredReviews: filteredReviews?.length || 0,
           suggestion: allReviews.length === 0 
             ? '抓取过程中没有找到相关评论，请尝试使用不同的应用名称或关键词' 
             : '抓取到的评论在质量筛选后被过滤掉了，请尝试使用更通用的应用名称'
@@ -325,7 +446,33 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    console.log(`📊 找到 ${scrapedReviews.length} 条评论，准备分析`);
+    console.log(`📊 找到 ${filteredReviews.length} 条评论，准备分析`);
+
+    // 🆕 更新scraping_sessions表，记录原始数量和筛选后数量
+    console.log(`📝 正在更新scraping_sessions表的统计信息...`);
+    const { error: updateSessionError } = await supabase
+      .from('scraping_sessions')
+      .update({
+        // 原始scrape数量
+        total_reviews_found: stats.original.total,
+        app_store_reviews: stats.original.app_store,
+        google_play_reviews: stats.original.google_play,
+        reddit_posts: stats.original.reddit,
+        // 筛选后的analysis数量
+        app_store_analysis_reviews: stats.final.app_store,
+        google_play_analysis_reviews: stats.final.google_play,
+        reddit_analysis_posts: stats.final.reddit,
+        total_analysis_reviews: stats.final.total,
+        filtering_stats: stats
+      })
+      .eq('id', scrapingSession.id);
+
+    if (updateSessionError) {
+      console.error('❌ 更新scraping_sessions筛选统计失败:', updateSessionError.message);
+    } else {
+      console.log(`✅ 成功更新scraping_sessions表的筛选统计信息`);
+      console.log(`📊 分析数量: Reddit ${stats.final.reddit}, App Store ${stats.final.app_store}, Google Play ${stats.final.google_play}, 总计 ${stats.final.total}`);
+    }
 
     // 3. 更新报告状态为分析中
     const { error: updateError } = await supabase
@@ -344,7 +491,7 @@ Deno.serve(async (req: Request) => {
     // 4. 创建分析任务（只有themes）
     const analysisTasks = await createAnalysisTasks(
       reportId, 
-      scrapedReviews, 
+      filteredReviews, 
       config,
       supabase,
       scrapingSession.id
@@ -356,9 +503,9 @@ Deno.serve(async (req: Request) => {
     const totalBatches = analysisTasks.length;
     
     // 统计平台分布
-    const redditCount = scrapedReviews.filter(r => r.platform === 'reddit').length;
-    const appStoreCount = scrapedReviews.filter(r => r.platform === 'app_store').length;
-    const googlePlayCount = scrapedReviews.filter(r => r.platform === 'google_play').length;
+    const redditCount = filteredReviews.filter(r => r.platform === 'reddit').length;
+    const appStoreCount = filteredReviews.filter(r => r.platform === 'app_store').length;
+    const googlePlayCount = filteredReviews.filter(r => r.platform === 'google_play').length;
     const redditBatches = Math.ceil(redditCount / 50);
     const appStoreBatches = Math.ceil(appStoreCount / 400);
     const googlePlayBatches = Math.ceil(googlePlayCount / 400);
@@ -390,6 +537,32 @@ Deno.serve(async (req: Request) => {
           
         throw new Error('启动第一批处理失败');
       }
+      
+      // 🆕 返回成功结果，包含详细的筛选统计信息
+      return new Response(JSON.stringify({
+        success: true,
+        message: `✅ 智能分析启动成功！共处理 ${stats.original.total} 条原始评论，经过筛选后发送 ${stats.final.total} 条高质量评论进行分析`,
+        result: {
+          reportId,
+          totalBatches,
+          startedBatches: firstBatchTasks.length,
+          estimatedTime: Math.ceil(totalBatches * 2.5), // 估算时间
+          status: 'started',
+          reviewCount: stats.final.total,
+          platformDistribution: {
+            reddit: { analyzed: stats.final.reddit, batches: redditBatches },
+            app_store: { analyzed: stats.final.app_store, batches: appStoreBatches },
+            google_play: { analyzed: stats.final.google_play, batches: googlePlayBatches }
+          },
+          filteringStats: {
+            original: stats.original,
+            final: stats.final,
+            efficiency: Math.round((stats.final.total / stats.original.total) * 100)
+          }
+        }
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
     } else {
       // 如果没有任务可处理，直接将报告状态改为completed
       await supabase
@@ -410,7 +583,7 @@ Deno.serve(async (req: Request) => {
           startedBatches: 0,
           estimatedTime: 0,
           status: 'completed',
-          reviewCount: scrapedReviews.length
+          reviewCount: filteredReviews.length
         }
       }), {
         headers: { 'Content-Type': 'application/json' }

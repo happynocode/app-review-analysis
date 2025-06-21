@@ -131,6 +131,16 @@ async function saveReviewsToDatabase(reviews: Review[], scrapingSessionId: strin
       console.log(`✅ Successfully saved ${reviewsToSave.length} reviews to database`)
     }
 
+    // 🆕 查询实际保存到数据库的review数量
+    const { count: actualSavedCount, error: countError } = await supabaseClient
+      .from('scraped_reviews')
+      .select('*', { count: 'exact', head: true })
+      .eq('scraping_session_id', scrapingSessionId)
+      .eq('platform', 'google_play');
+
+    const finalGooglePlayCount = actualSavedCount || 0;
+    console.log(`📊 Google Play实际保存数量: ${finalGooglePlayCount} (原计划: ${reviews.length})`);
+
   } catch (error) {
     console.error('❌ Error saving to database:', error)
     throw error
@@ -292,13 +302,22 @@ Deno.serve(async (req) => {
 
         await saveReviewsToDatabase(reviews, scrapingSessionId, packageName)
 
-        // 🆕 更新scraper状态为completed
+        // 🆕 查询实际保存到数据库的review数量
+        const { count: actualSavedCount, error: countError } = await supabaseClient
+          .from('scraped_reviews')
+          .select('*', { count: 'exact', head: true })
+          .eq('scraping_session_id', scrapingSessionId)
+          .eq('platform', 'google_play');
+
+        const finalGooglePlayCount = actualSavedCount || 0;
+        console.log(`📊 Google Play实际保存数量: ${finalGooglePlayCount} (原计划: ${reviews.length})`);
+
+        // 🆕 更新scraper状态为completed（删除review数量字段）
         await supabaseClient
           .from('scraping_sessions')
           .update({
             google_play_scraper_status: 'completed',
-            google_play_completed_at: new Date().toISOString(),
-            google_play_reviews: reviews.length
+            google_play_completed_at: new Date().toISOString()
           })
           .eq('id', scrapingSessionId)
 
