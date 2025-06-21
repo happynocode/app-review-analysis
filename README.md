@@ -1,236 +1,234 @@
 # 🚀 ReviewInsight - AI-Powered App Review Analysis Platform
 
-> 智能应用评论分析平台，基于人工智能技术深度分析多平台用户评论，快速生成洞察报告
+> Intelligent app review analysis platform that leverages AI technology to deeply analyze multi-platform user reviews and generate insightful reports quickly
 
-## 📋 项目概述
+## 📋 Project Overview
 
-**ReviewInsight** 是一个基于AI技术的应用评论分析平台，能够从多个平台（App Store、Google Play、Reddit）自动爬取和分析用户评论，利用先进的自然语言处理技术提取关键洞察，生成专业的分析报告。
+**ReviewInsight** is an AI-powered app review analysis platform that automatically scrapes and analyzes user reviews from multiple platforms (App Store, Google Play, Reddit). It utilizes advanced natural language processing technology to extract key insights and generate professional analysis reports.
 
-### 🎯 核心功能
+### 🎯 Core Features
 
-- **🔍 多平台抓取**: 支持App Store、Google Play、Reddit等主流平台
-- **🧠 AI智能分析**: 使用OpenAI GPT模型深度分析评论内容
-- **📊 实时监控**: 完整的任务监控和进度跟踪
-- **⚡ 高性能处理**: 并行批处理架构，高效处理大量数据
-- **📈 可视化报告**: 美观的报告展示和PDF导出功能
-- **🔐 用户认证**: 基于Supabase的安全认证系统
+- **🔍 Multi-Platform Scraping**: Supports mainstream platforms like App Store, Google Play, Reddit
+- **🧠 AI-Powered Analysis**: Uses OpenAI GPT models for deep review content analysis
+- **📊 Real-time Monitoring**: Complete task monitoring and progress tracking
+- **⚡ High-Performance Processing**: Parallel batch processing architecture for efficient handling of large datasets
+- **📈 Visual Reports**: Beautiful report displays with PDF export functionality
+- **🔐 User Authentication**: Secure authentication system based on Supabase
 
-### 🏗️ 技术架构
+### 🏗️ Technical Architecture
 
-**前端 (React + TypeScript)**
+**Frontend (React + TypeScript)**
 - ⚛️ React 18 + TypeScript
 - 🎨 Tailwind CSS + Framer Motion
 - 🔄 React Query + Zustand
-- 📱 响应式设计
+- 📱 Responsive Design
 
-**后端 (Supabase)**
-- 🗄️ PostgreSQL 数据库
+**Backend (Supabase)**
+- 🗄️ PostgreSQL Database
 - ⚡ Supabase Edge Functions (Deno)
 - 🔐 Row Level Security (RLS)
-- ⏰ Cron作业系统
+- ⏰ Cron Job System
 
-**AI & 数据处理**
+**AI & Data Processing**
 - 🤖 OpenAI GPT-4 API
-- 📝 智能主题提取
-- 🎯 情感分析
-- 📊 数据可视化
+- 📝 Intelligent Theme Extraction
+- 🎯 Sentiment Analysis
+- 📊 Data Visualization
 
-## 🚀 快速开始
+## 🚀 Quick Start
 
-### 环境要求
+### Requirements
 
 - Node.js 18+
-- npm 或 yarn
+- npm or yarn
 - Supabase CLI
 - PostgreSQL 15+
 
-### 1. 克隆项目
+### 1. Clone the Project
 
 ```bash
 git clone https://github.com/happynocode/app-review-analysis.git
 cd app-review-analysis
 ```
 
-### 2. 安装前端依赖
+### 2. Install Frontend Dependencies
 
 ```bash
 npm install
 ```
 
-### 3. 环境配置
+### 3. Environment Configuration
 
-创建 `.env.local` 文件：
+Create a `.env.local` file:
 
 ```env
 VITE_SUPABASE_URL=your_supabase_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
-### 4. 启动开发服务器
+### 4. Start Development Server
 
 ```bash
 npm run dev
 ```
 
-## 🛠️ 部署指南
+## 🛠️ Deployment Guide
 
-### 前端部署 (GitHub Pages)
+### Frontend Deployment (GitHub Pages)
 
 ```bash
 npm run build
 npm run deploy
 ```
 
-### 后端部署 (Supabase)
+### Backend Deployment (Supabase)
 
 ```bash
-# 初始化Supabase项目
+# Initialize Supabase project
 supabase init
 
-# 启动本地开发环境
+# Start local development environment
 supabase start
 
-# 部署数据库迁移
+# Deploy database migrations
 supabase db push
 
-# 部署Edge Functions
+# Deploy Edge Functions
 supabase functions deploy
 ```
 
-## 📁 项目结构
+## 📁 Project Structure
 
 ```
 app-review-analysis/
-├── 📂 src/                    # 前端源代码
-│   ├── 📂 components/         # React组件
-│   │   ├── 📂 ui/            # 基础UI组件
-│   │   ├── AuthModal.tsx     # 认证模态框
-│   │   ├── AppSelectionModal.tsx  # 应用选择
+├── 📂 src/                    # Frontend source code
+│   ├── 📂 components/         # React components
+│   │   ├── 📂 ui/            # Basic UI components
+│   │   ├── AuthModal.tsx     # Authentication modal
+│   │   ├── AppSelectionModal.tsx  # App selection modal
 │   │   └── ...
-│   ├── 📂 pages/             # 页面组件
-│   │   ├── LandingPage.tsx   # 首页
-│   │   ├── DashboardPage.tsx # 仪表板
-│   │   ├── ReportPage.tsx    # 报告页面
-│   │   └── DemoPage.tsx      # 演示页面
-│   ├── 📂 stores/            # 状态管理
-│   │   ├── authStore.ts      # 认证状态
-│   │   └── reportStore.ts    # 报告状态
-│   ├── 📂 lib/               # 工具库
-│   │   ├── supabase.ts       # Supabase客户端
-│   │   └── database.ts       # 数据库操作
-│   └── App.tsx               # 主应用组件
-├── 📂 supabase/              # 后端代码
+│   ├── 📂 pages/             # Page components
+│   │   ├── LandingPage.tsx   # Landing page
+│   │   ├── DashboardPage.tsx # Dashboard
+│   │   ├── ReportPage.tsx    # Report page
+│   │   └── DemoPage.tsx      # Demo page
+│   ├── 📂 stores/            # State management
+│   │   ├── authStore.ts      # Authentication state
+│   │   └── reportStore.ts    # Report state
+│   ├── 📂 lib/               # Utility libraries
+│   │   ├── supabase.ts       # Supabase client
+│   │   └── database.ts       # Database operations
+│   └── App.tsx               # Main app component
+├── 📂 supabase/              # Backend code
 │   ├── 📂 functions/         # Edge Functions
-│   │   ├── start-analysis-v2/        # 启动分析
-│   │   ├── process-analysis-batch-v2/ # 批处理分析
-│   │   ├── generate-report/          # 生成报告
-│   │   ├── complete-report-analysis/ # 完成分析
-│   │   ├── scrape-app-store/         # App Store爬虫
-│   │   ├── scrape-google-play/       # Google Play爬虫
-│   │   ├── scrape-reddit/            # Reddit爬虫
-│   │   ├── search-apps/              # 应用搜索
-│   │   ├── start-scraping/           # 启动爬虫
-│   │   ├── update-scraper-status/    # 更新状态
-│   │   ├── cron-batch-processor/     # 定时批处理
-│   │   ├── cron-scraping-monitor/    # 爬虫监控
-│   │   └── delete-all-data/          # 删除数据
-│   ├── 📂 migrations/        # 数据库迁移
+│   │   ├── start-analysis-v2/        # Start analysis
+│   │   ├── process-analysis-batch-v2/ # Batch processing
+│   │   ├── generate-report/          # Generate report
+│   │   ├── complete-report-analysis/ # Complete analysis
+│   │   ├── scrape-app-store/         # App Store scraper
+│   │   ├── scrape-google-play/       # Google Play scraper
+│   │   ├── scrape-reddit/            # Reddit scraper
+│   │   ├── search-apps/              # App search
+│   │   ├── start-scraping/           # Start scraping
+│   │   ├── update-scraper-status/    # Update status
+│   │   ├── cron-batch-processor/     # Scheduled batch processing
+│   │   ├── cron-scraping-monitor/    # Scraping monitor
+│   │   └── delete-all-data/          # Delete data
+│   ├── 📂 migrations/        # Database migrations
 │   │   ├── 20250100_complete_schema.sql
 │   │   ├── 20250100_simplified_architecture.sql
 │   │   └── cron_jobs.sql
-│   └── config.toml          # Supabase配置
-├── 📂 public/               # 静态资源
-├── package.json            # 项目配置
-├── tailwind.config.js      # Tailwind配置
-├── vite.config.ts          # Vite配置
-└── README.md              # 项目文档
+│   └── config.toml          # Supabase configuration
+├── 📂 public/               # Static assets
+├── package.json            # Project configuration
+├── tailwind.config.js      # Tailwind configuration
+├── vite.config.ts          # Vite configuration
+└── README.md              # Project documentation
 ```
 
-## 🔧 核心功能模块
+## 🔧 Core Feature Modules
 
-### 1. 评论抓取系统
+### 1. Review Scraping System
 
-- **App Store**: 使用Apple Search API抓取iOS应用评论
-- **Google Play**: 通过网页抓取获取Android应用评论
-- **Reddit**: 搜索相关讨论和用户反馈
+- **App Store**: Uses Apple Search API to scrape iOS app reviews
+- **Google Play**: Web scraping to collect Android app reviews
+- **Reddit**: Search for relevant discussions and user feedback
 
-### 2. AI分析引擎
+### 2. AI Analysis Engine
 
-- **智能筛选**: 去重、时间过滤、质量评分
-- **主题提取**: 自动识别用户关注的关键问题
-- **情感分析**: 分析用户情感倾向
-- **洞察生成**: 提供可行的改进建议
+- **Smart Filtering**: Deduplication, time filtering, quality scoring
+- **Theme Extraction**: Automatically identify key issues users care about
+- **Sentiment Analysis**: Analyze user sentiment trends
+- **Insight Generation**: Provide actionable improvement suggestions
 
-### 3. 报告生成
+### 3. Report Generation
 
-- **实时进度**: 分析进度实时更新
-- **可视化展示**: 图表和数据可视化
-- **PDF导出**: 专业报告格式导出
-- **分享功能**: 支持报告链接分享
+- **Real-time Progress**: Analysis progress updates in real-time
+- **Visual Display**: Charts and data visualization
+- **PDF Export**: Professional report format export
+- **Sharing Features**: Support for report link sharing
 
-## 📊 数据库架构
+## 📊 Database Architecture
 
-### 核心表结构
+### Core Table Structure
 
-- **users**: 用户信息
-- **reports**: 分析报告
-- **themes**: 分析主题
-- **quotes**: 用户评论引用
-- **suggestions**: 改进建议
-- **scraping_sessions**: 抓取会话
-- **scraped_reviews**: 原始评论数据
-- **analysis_tasks**: 分析任务
-- **processing_queue**: 处理队列
+- **users**: User information
+- **reports**: Analysis reports
+- **themes**: Analysis themes
+- **quotes**: User review quotes
+- **suggestions**: Improvement suggestions
+- **scraping_sessions**: Scraping sessions
+- **scraped_reviews**: Raw review data
+- **analysis_tasks**: Analysis tasks
+- **processing_queue**: Processing queue
 
-## 🔐 安全特性
+## 🔐 Security Features
 
-- **Row Level Security (RLS)**: 数据访问控制
-- **JWT认证**: 安全的用户认证
-- **API限流**: 防止滥用
-- **数据加密**: 敏感数据加密存储
+- **Row Level Security (RLS)**: Data access control
+- **JWT Authentication**: Secure user authentication
+- **API Rate Limiting**: Prevent abuse
+- **Data Encryption**: Encrypted storage of sensitive data
 
-## 📈 性能优化
+## 📈 Performance Optimization
 
-- **并行处理**: 多批次并行分析
-- **智能缓存**: 减少重复计算
-- **数据库优化**: 索引和查询优化
-- **CDN加速**: 静态资源CDN分发
+- **Parallel Processing**: Multi-batch parallel analysis
+- **Smart Caching**: Reduce redundant computations
+- **Database Optimization**: Index and query optimization
+- **CDN Acceleration**: Static resource CDN distribution
 
-## 🤝 贡献指南
+## 🤝 Contributing Guide
 
-1. Fork 项目
-2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 开启 Pull Request
+1. Fork the project
+2. Create feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to branch (`git push origin feature/AmazingFeature`)
+5. Open Pull Request
 
-## 📝 更新日志
+## 📝 Changelog
 
 ### v2.0.0 (2025-01)
-- ✨ 重构AI分析引擎
-- ⚡ 性能优化，提升60-70%处理速度
-- 🔧 完善监控系统
-- 📱 优化用户界面
+- ✨ Refactored AI analysis engine
+- ⚡ Performance optimization, 60-70% processing speed improvement
+- 🔧 Enhanced monitoring system
+- 📱 Optimized user interface
 
 ### v1.0.0 (2024-12)
-- 🎉 首次发布
-- 🔍 多平台评论抓取
-- 🧠 AI智能分析
-- 📊 报告生成系统
+- 🎉 Initial release
+- 🔍 Multi-platform review scraping
+- 🧠 AI-powered analysis
+- 📊 Report generation system
 
-## 📞 支持与联系
+## 📞 Support & Contact
 
+- 🐛 Bug Reports: [GitHub Issues](https://github.com/happynocode/app-review-analysis/issues)
 
-- 🐛 问题反馈: [GitHub Issues](https://github.com/happynocode/app-review-analysis/issues)
+## 📄 License
 
-
-## 📄 许可证
-
-本项目采用 [MIT License](LICENSE) 许可证。
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 
 <div align="center">
   <p>Made with ❤️ by ReviewInsight Team</p>
-  <p>⭐ 如果这个项目对你有帮助，请给我们一个星星！</p>
+  <p>⭐ If this project helps you, please give us a star!</p>
 </div> 
