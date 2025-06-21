@@ -12,9 +12,10 @@ const REDDIT_CLIENT_SECRET = Deno.env.get('REDDIT_CLIENT_SECRET')
 const REDDIT_USER_AGENT = Deno.env.get('REDDIT_USER_AGENT') || 'ReviewInsight/1.0 by YourUsername'
 
 interface ScrapeRequest {
-  appName: string
+  appName: string // 用户选择的应用名称（从应用列表中选择的完整名称）
+  userSearchTerm?: string // 🆕 用户在搜索框输入的原始关键词
   scrapingSessionId?: string
-  maxPosts?: number // 🆕 允许用户指定最大帖子数
+  maxPosts?: number
 }
 
 interface RedditPost {
@@ -36,11 +37,11 @@ interface RedditPost {
 class RedditAPIClient {
   private accessToken: string | null = null
   private tokenExpiry: number = 0
-  private rateLimitDelay = 1000 // 1 second between requests (Reddit allows 60 requests per minute)
+  private rateLimitDelay = 1000 // 1 second between requests
 
   constructor() {
     if (!REDDIT_CLIENT_ID || !REDDIT_CLIENT_SECRET) {
-      console.warn('⚠️ Reddit API credentials not configured. Using fallback methods.')
+      console.warn('⚠️ Reddit API credentials not configured. Reddit scraping will be limited.')
     }
   }
 
@@ -48,7 +49,7 @@ class RedditAPIClient {
     await new Promise(resolve => setTimeout(resolve, ms))
   }
 
-  // 🔐 获取 Reddit API 访问令牌
+  // 获取 Reddit API 访问令牌
   async getAccessToken(): Promise<string | null> {
     if (!REDDIT_CLIENT_ID || !REDDIT_CLIENT_SECRET) {
       return null
@@ -96,7 +97,7 @@ class RedditAPIClient {
     }
   }
 
-  // 🔍 使用 Reddit API 搜索
+  // 使用 Reddit API 搜索
   async searchWithAPI(query: string, subreddit?: string, limit: number = 100): Promise<RedditPost[]> {
     const token = await this.getAccessToken()
     if (!token) {
@@ -109,7 +110,7 @@ class RedditAPIClient {
       const params = new URLSearchParams({
         q: query,
         sort: 'relevance',
-        t: 'all',
+        t: 'year', // 🆕 限制在一年内的帖子
         limit: limit.toString(),
         type: 'link'
       })
@@ -151,45 +152,6 @@ class RedditAPIClient {
 
     } catch (error) {
       console.error(`❌ Reddit API search error for "${query}":`, error.message)
-      return []
-    }
-  }
-
-  // 🔍 获取特定 subreddit 的热门帖子
-  async getSubredditPosts(subreddit: string, sort: 'hot' | 'new' | 'top' = 'hot', limit: number = 100): Promise<RedditPost[]> {
-    const token = await this.getAccessToken()
-    if (!token) {
-      return []
-    }
-
-    try {
-      const url = `https://oauth.reddit.com/r/${subreddit}/${sort}?limit=${limit}`
-      
-      console.log(`📡 Fetching r/${subreddit}/${sort} (limit: ${limit})`)
-      
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'User-Agent': REDDIT_USER_AGENT
-        }
-      })
-
-      if (!response.ok) {
-        throw new Error(`Subreddit fetch failed: ${response.status}`)
-      }
-
-      const data = await response.json()
-      
-      if (data?.data?.children) {
-        const posts = this.parseRedditAPIData(data.data.children, subreddit)
-        console.log(`✅ Fetched ${posts.length} posts from r/${subreddit}`)
-        return posts
-      }
-
-      return []
-
-    } catch (error) {
-      console.error(`❌ Error fetching r/${subreddit}:`, error.message)
       return []
     }
   }
@@ -242,534 +204,412 @@ class RedditAPIClient {
   }
 }
 
-class EnhancedRedditScraper {
+class OptimizedRedditScraper {
   private apiClient: RedditAPIClient
-  private rateLimitDelay = 2000 // 2 seconds between non-API requests
-  private userAgents = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-  ]
 
   constructor() {
     this.apiClient = new RedditAPIClient()
   }
 
-  private getRandomUserAgent(): string {
-    return this.userAgents[Math.floor(Math.random() * this.userAgents.length)]
+  // 🆕 简化的关键词生成：只使用核心词汇+特定后缀
+  private generateOptimizedSearchTerms(userSearchTerm?: string, appName?: string): string[] {
+    const searchTerms = new Set<string>()
+    
+    console.log(`🔧 Generating simplified search terms - User: "${userSearchTerm || 'none'}", App: "${appName || 'none'}"`)
+    
+    // 确定核心搜索词：优先使用用户搜索词，其次是应用名的核心关键词
+    let coreSearchTerm = ''
+    
+    if (userSearchTerm && userSearchTerm.trim().length > 0) {
+      coreSearchTerm = userSearchTerm.trim().toLowerCase()
+      console.log(`🎯 Using user search term as core: "${coreSearchTerm}"`)
+    } else if (appName && appName.trim().length > 0) {
+      // 从应用名提取第一个核心关键词
+      const appKeywords = this.extractSimpleAppKeywords(appName)
+      if (appKeywords.length > 0) {
+        coreSearchTerm = appKeywords[0]
+        console.log(`📱 Using app keyword as core: "${coreSearchTerm}"`)
+      }
+    }
+    
+    // 如果没有有效的核心搜索词，返回空数组
+    if (!coreSearchTerm || coreSearchTerm.length < 2) {
+      console.log('⚠️ No valid core search term found')
+      return []
+    }
+    
+    // 定义搜索后缀 - 扩展版本
+    const searchSuffixes = [
+      // 评价相关
+      'review',
+      'reviews',
+      'rating',
+      'ratings',
+      'opinion',
+      'opinions',
+      'feedback',
+      'thoughts',
+      
+      // 平台相关
+      'app',
+      'application',
+      'ios',
+      'android',
+      'mobile',
+      'download',
+      
+      // 问题相关
+      'issue',
+      'issues',
+      'problem',
+      'problems',
+      'bug',
+      'bugs',
+      'error',
+      'errors',
+      'crash',
+      'crashes',
+      'glitch',
+      'glitches',
+      
+      // 体验相关
+      'experience',
+      'experiences',
+      'using',
+      'tried',
+      'testing',
+      'working',
+      'not working',
+      'broken',
+      'fixed',
+      
+      // 比较相关
+      'vs',
+      'versus',
+      'compared to',
+      'alternative',
+      'alternatives',
+      'better than',
+      'worse than',
+      'similar to',
+      
+      // 推荐相关
+      'recommend',
+      'recommendation',
+      'worth it',
+      'good',
+      'bad',
+      'terrible',
+      'awesome',
+      'amazing',
+      'disappointing',
+      
+      // 功能相关
+      'update',
+      'updates',
+      'new version',
+      'latest version',
+      'feature',
+      'features',
+      'settings',
+      'setup',
+      
+      // 使用相关
+      'how to use',
+      'tutorial',
+      'guide',
+      'tips',
+      'tricks',
+      'help'
+    ]
+    
+    // 生成核心词汇+后缀的组合
+    for (const suffix of searchSuffixes) {
+      searchTerms.add(`${coreSearchTerm} ${suffix}`)
+    }
+    
+    // 也添加单独的核心词汇
+    searchTerms.add(coreSearchTerm)
+    searchTerms.add(`"${coreSearchTerm}"`) // 精确匹配
+    
+    // 转换为数组并过滤
+    const finalTerms = Array.from(searchTerms)
+      .filter(term => {
+        // 基本验证
+        if (!term || term.length < 3 || term.length > 40) return false
+        if (term.includes('undefined') || term.includes('null')) return false
+        
+        // 避免包含HTML实体或特殊编码
+        if (term.includes('&amp;') || term.includes('&quot;')) return false
+        
+        return true
+      })
+      .slice(0, 25) // 增加到最多25个搜索词以获得更多覆盖
+
+    console.log(`📝 Generated ${finalTerms.length} expanded search terms:`, finalTerms)
+    return finalTerms
+  }
+
+  // 🆕 从应用名提取简单关键词的辅助方法
+  private extractSimpleAppKeywords(appName: string): string[] {
+    // 清理应用名：去掉特殊字符和常见后缀
+    let cleanAppName = appName
+      .toLowerCase()
+      .replace(/[^\w\s]/g, ' ') // 移除特殊字符
+      .replace(/\s+-\s+/g, ' ') // 移除 " - "
+      .replace(/\b(app|application|mobile|inc|llc|ltd|corp|company|&amp|amp)\b/gi, ' ') // 移除常见后缀
+      .replace(/\s+/g, ' ') // 合并多个空格
+      .trim()
+    
+    console.log(`🔧 Cleaned app name: "${appName}" -> "${cleanAppName}"`)
+    
+    // 提取有意义的词汇
+    const keywords = cleanAppName.split(/\s+/)
+      .filter(word => word.length > 2)
+      .filter(word => !['the', 'and', 'for', 'with', 'app', 'mobile', 'application', 'drive', 'deliver', 'driver'].includes(word.toLowerCase()))
+      .slice(0, 3) // 只取前3个最重要的词
+    
+    console.log(`🎯 Extracted app keywords:`, keywords)
+    return keywords
+  }
+
+  // 获取重点 subreddits（增强版）
+  private getTargetSubreddits(): string[] {
+    return [
+      // 应用和软件相关 (高优先级)
+      'apps', 'androidapps', 'iosapps', 'AppReviews', 'software', 'SoftwareRecommendations',
+      'AppHookup', 'AppleWatch', 'iPhone', 'iPad', 'Android', 'GooglePlay', 'AppStore',
+      
+      // 技术和平台相关
+      'technology', 'tech', 'TechSupport', 'TechReviews', 'gadgets', 'apple', 'google',
+      'microsoft', 'opensource', 'Programming', 'webdev', 'MacApps', 'WindowsApps',
+      
+      // 生产力和工作相关
+      'productivity', 'ProductivityApps', 'WorkflowApps', 'studytips', 'LifeProTips',
+      'GetStudying', 'organization', 'selfimprovement',
+      
+      // 用户讨论和推荐
+      'AskReddit', 'NoStupidQuestions', 'tipofmytongue', 'HelpMeFind', 'findareddit',
+      'reviews', 'BuyItForLife', 'YouShouldKnow', 'LifeHacks',
+      
+      // 游戏和娱乐相关
+      'gaming', 'AndroidGaming', 'iosGaming', 'GameReviews', 'MobileGaming',
+      'indiegames', 'GameDeals', 'Steam',
+      
+      // 社交和通讯相关
+      'socialmedia', 'privacy', 'security', 'Telegram', 'WhatsApp', 'Signal',
+      'Instagram', 'Twitter', 'Facebook', 'TikTok', 'YouTube',
+      
+      // 金融和商务相关
+      'personalfinance', 'investing', 'CryptoCurrency', 'Entrepreneur', 'smallbusiness',
+      'Banking', 'FinTech', 'ecommerce', 'startups',
+      
+      // 设计和创意
+      'Design', 'GraphicDesign', 'UserExperience', 'UI_Design', 'web_design',
+      'photography', 'AdobeIllustrator', 'photoshop',
+      
+      // 健康和生活方式
+      'fitness', 'nutrition', 'loseit', 'getmotivated', 'selfcare',
+      'meditation', 'sleep', 'running', 'bodyweightfitness'
+    ]
+  }
+
+  // 🆕 简化的应用特定subreddit生成
+  private generateAppSpecificSubreddits(userSearchTerm?: string, appName?: string): string[] {
+    const appSubreddits: string[] = []
+    
+    console.log(`🎯 Generating simplified app-specific subreddits - User: "${userSearchTerm || 'none'}", App: "${appName || 'none'}"`)
+    
+    // 确定核心搜索词：优先使用用户搜索词，其次是应用名的核心关键词
+    let coreSearchTerm = ''
+    
+    if (userSearchTerm && userSearchTerm.trim().length > 0) {
+      coreSearchTerm = userSearchTerm.trim().toLowerCase()
+        .replace(/[^\w\s]/g, '')
+        .replace(/\s+/g, '')
+      console.log(`🎯 Using user search term for subreddits: "${coreSearchTerm}"`)
+    } else if (appName && appName.trim().length > 0) {
+      const appKeywords = this.extractSimpleAppKeywords(appName)
+      if (appKeywords.length > 0) {
+        coreSearchTerm = appKeywords[0].replace(/[^\w\s]/g, '').replace(/\s+/g, '')
+        console.log(`📱 Using app keyword for subreddits: "${coreSearchTerm}"`)
+      }
+    }
+    
+    // 如果有有效的核心搜索词，生成可能的subreddit名称
+    if (coreSearchTerm && coreSearchTerm.length >= 3 && coreSearchTerm.length <= 15) {
+      appSubreddits.push(coreSearchTerm)
+      
+      // 只对知名品牌添加最相关的后缀
+      const knownBrands = ['uber', 'lyft', 'doordash', 'grubhub', 'postmates', 'spotify', 'netflix', 'amazon', 'google', 'apple', 'microsoft']
+      if (knownBrands.includes(coreSearchTerm)) {
+        // 只添加最常见和相关的后缀
+        if (['uber', 'lyft', 'doordash', 'grubhub', 'postmates'].includes(coreSearchTerm)) {
+          appSubreddits.push(`${coreSearchTerm}driver`)
+          appSubreddits.push(`${coreSearchTerm}drivers`)
+        }
+      }
+    }
+    
+    // 过滤并返回合理的subreddit名称
+    const uniqueSubreddits = [...new Set(appSubreddits)]
+      .filter(sub => {
+        // 基本格式检查
+        if (sub.length < 3 || sub.length > 21) return false
+        if (!/^[a-z0-9]+$/i.test(sub)) return false
+        return true
+      })
+      .slice(0, 3) // 只保留最多3个相关的subreddit
+
+    console.log(`🎯 Generated ${uniqueSubreddits.length} simplified app-specific subreddits:`, uniqueSubreddits)
+    return uniqueSubreddits
+  }
+
+  // 🚀 增强的主搜索方法：扩展的 Reddit API 策略
+  async scrapeReddit(userSearchTerm?: string, appName?: string, maxPosts: number = 400): Promise<RedditPost[]> {
+    const allPosts: RedditPost[] = []
+    
+    console.log(`\n🚀 === ENHANCED REDDIT SCRAPER (EXPANDED API STRATEGY) ===`)
+    console.log(`👤 User search term: "${userSearchTerm || 'not provided'}"`)
+    console.log(`📱 App name: "${appName || 'not provided'}"`)
+    console.log(`🔑 Reddit API: ${REDDIT_CLIENT_ID ? 'Configured' : 'Not configured'}`)
+    console.log(`📊 Target max posts: ${maxPosts}`)
+    console.log(`⏰ Start Time: ${new Date().toISOString()}`)
+
+    // 检查API可用性
+    if (!REDDIT_CLIENT_ID || !REDDIT_CLIENT_SECRET) {
+      console.error('❌ Reddit API credentials not configured. Cannot proceed with scraping.')
+      return []
+    }
+
+    const searchTerms = this.generateOptimizedSearchTerms(userSearchTerm, appName)
+    const generalSubreddits = this.getTargetSubreddits()
+    const appSpecificSubreddits = this.generateAppSpecificSubreddits(userSearchTerm, appName)
+    const allSubreddits = [...generalSubreddits, ...appSpecificSubreddits]
+
+    console.log(`🌍 Total search terms: ${searchTerms.length}`)
+    console.log(`📡 General subreddits: ${generalSubreddits.length}`)
+    console.log(`🎯 App-specific subreddits: ${appSpecificSubreddits.length}`)
+    console.log(`📊 Total subreddits to search: ${allSubreddits.length}`)
+
+    try {
+      // 策略1: 扩展的全局搜索 - 更多关键词
+      console.log(`\n🌍 === ENHANCED GLOBAL SEARCH ===`)
+      for (const term of searchTerms.slice(0, 15)) { // 增加到15个关键词
+        console.log(`🔍 Global search for: "${term}"`)
+        const apiPosts = await this.apiClient.searchWithAPI(term, undefined, 60) // 增加每次搜索的数量
+        allPosts.push(...apiPosts)
+        console.log(`✅ Global search "${term}": ${apiPosts.length} posts`)
+        await this.delay(1000)
+      }
+
+      // 策略2: 重点通用 subreddit 搜索
+      console.log(`\n📡 === ENHANCED TARGETED SUBREDDIT SEARCH ===`)
+      for (const subreddit of generalSubreddits.slice(0, 15)) { // 增加到15个通用subreddit
+        for (const term of searchTerms.slice(0, 8)) { // 每个subreddit搜索8个关键词
+          console.log(`🔍 r/${subreddit} search for: "${term}"`)
+          const subredditPosts = await this.apiClient.searchWithAPI(term, subreddit, 30)
+          allPosts.push(...subredditPosts)
+          console.log(`✅ r/${subreddit} "${term}": ${subredditPosts.length} posts`)
+          await this.delay(800) // 稍微减少延迟以提高效率
+        }
+      }
+
+      // 策略3: 应用特定 subreddit 搜索
+      console.log(`\n🎯 === APP-SPECIFIC SUBREDDIT SEARCH ===`)
+      for (const appSubreddit of appSpecificSubreddits) {
+        for (const term of searchTerms.slice(0, 6)) { // 每个应用特定subreddit搜索6个关键词
+          console.log(`🔍 r/${appSubreddit} search for: "${term}"`)
+          try {
+            const appSpecificPosts = await this.apiClient.searchWithAPI(term, appSubreddit, 20)
+            allPosts.push(...appSpecificPosts)
+            console.log(`✅ r/${appSubreddit} "${term}": ${appSpecificPosts.length} posts`)
+          } catch (error) {
+            // 某些应用特定的subreddit可能不存在，这是正常的
+            console.log(`⚠️ r/${appSubreddit} not found or accessible`)
+          }
+          await this.delay(800)
+        }
+      }
+
+      // 策略4: 简化的高级搜索模式 - 只使用核心词汇+高价值后缀
+      console.log(`\n🔬 === SIMPLIFIED ADVANCED SEARCH ===`)
+      
+      // 确定核心搜索词
+      let coreSearchTerm = ''
+      if (userSearchTerm && userSearchTerm.trim().length > 0) {
+        coreSearchTerm = userSearchTerm.trim().toLowerCase()
+        console.log(`🎯 Using user search term for advanced patterns: "${coreSearchTerm}"`)
+      } else if (appName && appName.trim().length > 0) {
+        const appKeywords = this.extractSimpleAppKeywords(appName)
+        if (appKeywords.length > 0) {
+          coreSearchTerm = appKeywords[0]
+          console.log(`📱 Using app keyword for advanced patterns: "${coreSearchTerm}"`)
+        }
+      }
+      
+      // 如果有有效的核心搜索词，只搜索最高价值的组合
+      if (coreSearchTerm && coreSearchTerm.length > 2) {
+        const highValueSuffixes = ['vs', 'alternative', 'better than']
+        
+        for (const suffix of highValueSuffixes) {
+          const pattern = `${coreSearchTerm} ${suffix}`
+          console.log(`🔍 High-value pattern search: "${pattern}"`)
+          const patternPosts = await this.apiClient.searchWithAPI(pattern, undefined, 20)
+          allPosts.push(...patternPosts)
+          console.log(`✅ High-value pattern "${pattern}": ${patternPosts.length} posts`)
+          await this.delay(1000)
+        }
+      }
+
+      console.log(`✅ Enhanced Reddit API search completed: ${allPosts.length} posts collected`)
+
+    } catch (error) {
+      console.error('❌ Enhanced Reddit API search failed:', error.message)
+    }
+
+    // 简单去重
+    const uniquePosts = this.deduplicatePosts(allPosts)
+    
+    console.log(`\n🎯 === ENHANCED REDDIT SCRAPING COMPLETED ===`)
+    console.log(`📊 Total posts collected: ${allPosts.length}`)
+    console.log(`✨ Final unique posts: ${uniquePosts.length}`)
+    console.log(`🔑 Enhanced API strategy used`)
+    console.log(`🌍 Global searches: ${Math.min(searchTerms.length, 10)}`)
+    console.log(`📡 General subreddits searched: ${Math.min(generalSubreddits.length, 15)}`)
+    console.log(`🎯 App-specific subreddits searched: ${appSpecificSubreddits.length}`)
+    console.log(`🔬 Advanced patterns searched: up to 6`)
+    console.log(`⏰ End Time: ${new Date().toISOString()}`)
+    
+    return uniquePosts.slice(0, maxPosts) // 限制最终数量
   }
 
   private async delay(ms: number): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, ms))
   }
 
-  // 生成搜索关键词（基于用户提供的应用名称）
-  private generateSearchTerms(appName: string): string[] {
-    const cleanName = appName.trim()
-    const nameWords = cleanName.split(/\s+/)
-    
-    const searchTerms = [
-      // 精确匹配
-      cleanName,
-      `"${cleanName}"`,
-      
-      // 应用相关
-      `${cleanName} app`,
-      `${cleanName} application`,
-      `${cleanName} mobile`,
-      
-      // 评价相关
-      `${cleanName} review`,
-      `${cleanName} reviews`,
-      `${cleanName} feedback`,
-      `${cleanName} experience`,
-      `${cleanName} opinion`,
-      
-      // 问题相关
-      `${cleanName} problem`,
-      `${cleanName} issue`,
-      `${cleanName} bug`,
-      `${cleanName} not working`,
-      `${cleanName} crash`,
-      
-      // 比较相关
-      `${cleanName} vs`,
-      `${cleanName} alternative`,
-      `${cleanName} better than`,
-      
-      // 如果是多词应用名，也搜索单个词
-      ...(nameWords.length > 1 ? nameWords.filter(word => word.length > 3) : [])
-    ]
+  // 简单去重方法
+  private deduplicatePosts(posts: RedditPost[]): RedditPost[] {
+    const seen = new Set<string>()
+    const uniquePosts: RedditPost[] = []
 
-    // 去重并过滤
-    return [...new Set(searchTerms.filter(term => term.length > 2))]
-  }
-
-  // 获取目标 subreddits
-  private getTargetSubreddits(): string[] {
-    return [
-      // 应用相关
-      'apps', 'androidapps', 'iosapps', 'AppReviews', 'software',
+    for (const post of posts) {
+      // 使用帖子ID作为唯一标识符
+      const key = post.postId || `${post.title}_${post.author}_${post.date}`
       
-      // 平台相关
-      'Android', 'iphone', 'ios', 'apple', 'google', 'GooglePlay',
-      
-      // 技术相关
-      'technology', 'tech', 'gadgets', 'productivity', 'startups',
-      
-      // 用户体验
-      'userexperience', 'UXDesign', 'mobiledev', 'webdev',
-      
-      // 一般讨论
-      'AskReddit', 'NoStupidQuestions', 'tipofmytongue', 'HelpMeFind',
-      
-      // 特定类别
-      'gaming', 'fitness', 'finance', 'education', 'social',
-      'photography', 'music', 'news', 'shopping', 'travel',
-      'business', 'entrepreneur', 'smallbusiness'
-    ]
-  }
-
-  // 🚀 主要搜索方法：优先使用 Reddit API
-  async scrapeReddit(appName: string, maxPosts: number = 200): Promise<RedditPost[]> { // 🆕 增加默认最大帖子数
-    const allPosts: RedditPost[] = []
-    
-    console.log(`\n🚀 === ENHANCED REDDIT SCRAPER WITH API ===`)
-    console.log(`📱 App Name: "${appName}"`)
-    console.log(`🔑 Reddit API: ${REDDIT_CLIENT_ID ? 'Configured' : 'Not configured'}`)
-    console.log(`🎯 Using user-provided app name for optimized search`)
-    console.log(`📊 Target max posts: ${maxPosts}`) // 🆕 显示目标帖子数
-    console.log(`⏰ Start Time: ${new Date().toISOString()}`)
-
-    const searchTerms = this.generateSearchTerms(appName)
-    const subreddits = this.getTargetSubreddits()
-
-    console.log(`📝 Generated ${searchTerms.length} search terms`)
-    console.log(`🎯 Targeting ${subreddits.length} subreddits`)
-
-    // 策略1: Reddit API 搜索（如果可用）
-    if (REDDIT_CLIENT_ID && REDDIT_CLIENT_SECRET) {
-      console.log(`\n🔑 === STRATEGY 1: REDDIT API SEARCH ===`)
-      
-      try {
-        // 全站搜索最相关的关键词
-        for (const term of searchTerms.slice(0, 5)) {
-          const apiPosts = await this.apiClient.searchWithAPI(term, undefined, 100)
-          allPosts.push(...apiPosts)
-          console.log(`🔍 API global search "${term}": ${apiPosts.length} posts`)
-          await this.delay(1000) // API rate limiting
-        }
-
-        // 特定 subreddit 搜索
-        for (const subreddit of subreddits.slice(0, 10)) {
-          for (const term of searchTerms.slice(0, 3)) {
-            const subredditPosts = await this.apiClient.searchWithAPI(term, subreddit, 50)
-            allPosts.push(...subredditPosts)
-            console.log(`🔍 API r/${subreddit} search "${term}": ${subredditPosts.length} posts`)
-            await this.delay(1000) // API rate limiting
-          }
-        }
-
-        // 获取相关 subreddit 的热门帖子
-        for (const subreddit of ['apps', 'androidapps', 'iosapps', 'software'].slice(0, 4)) {
-          const hotPosts = await this.apiClient.getSubredditPosts(subreddit, 'hot', 100)
-          const relevantPosts = this.filterRelevantPosts(hotPosts, appName)
-          allPosts.push(...relevantPosts)
-          console.log(`📡 API r/${subreddit}/hot: ${relevantPosts.length} relevant posts`)
-          await this.delay(1000)
-        }
-
-        console.log(`✅ Reddit API strategy completed: ${allPosts.length} posts collected`)
-
-      } catch (error) {
-        console.error('❌ Reddit API strategy failed:', error.message)
+      if (!seen.has(key) && post.text.length > 20) {
+        seen.add(key)
+        uniquePosts.push(post)
       }
     }
 
-    // 策略2: JSON API 备用方法（如果 API 不可用或需要更多数据）
-    console.log(`\n📊 === STRATEGY 2: JSON API FALLBACK ===`)
-    
-    try {
-      const jsonPosts = await this.scrapeWithJSONAPI(appName, searchTerms, subreddits)
-      allPosts.push(...jsonPosts)
-      console.log(`✅ JSON API fallback: ${jsonPosts.length} additional posts`)
-    } catch (error) {
-      console.error('❌ JSON API fallback failed:', error.message)
-    }
-
-    // 策略3: Pushshift 历史数据
-    console.log(`\n🕐 === STRATEGY 3: PUSHSHIFT HISTORICAL DATA ===`)
-    
-    try {
-      const pushshiftPosts = await this.scrapeWithPushshift(appName, searchTerms)
-      allPosts.push(...pushshiftPosts)
-      console.log(`✅ Pushshift strategy: ${pushshiftPosts.length} historical posts`)
-    } catch (error) {
-      console.error('❌ Pushshift strategy failed:', error.message)
-    }
-
-    // 最终处理 - 🆕 使用用户指定的最大帖子数
-    console.log(`\n🔧 === FINAL PROCESSING ===`)
-    const uniquePosts = this.enhancedDeduplicationAndFilter(allPosts, appName, maxPosts)
-    
-    console.log(`\n🎯 === REDDIT SCRAPING COMPLETED ===`)
-    console.log(`📊 Total posts collected: ${allPosts.length}`)
-    console.log(`✨ Final unique, relevant posts: ${uniquePosts.length}`)
-    console.log(`🎯 Target was: ${maxPosts} posts`)
-    console.log(`🔑 API usage: ${REDDIT_CLIENT_ID ? 'Enabled' : 'Disabled'}`)
-    console.log(`⏰ End Time: ${new Date().toISOString()}`)
-    
-    return uniquePosts
-  }
-
-  // 过滤相关帖子
-  private filterRelevantPosts(posts: RedditPost[], appName: string): RedditPost[] {
-    const appNameLower = appName.toLowerCase()
-    const appNameWords = appNameLower.split(/\s+/)
-
-    return posts.filter(post => {
-      const title = post.title.toLowerCase()
-      const text = post.text.toLowerCase()
-      
-      // 检查相关性
-      const relevanceScore = this.calculateRelevanceScore(
-        { title, text }, 
-        appNameLower, 
-        appNameWords
-      )
-      
-      return relevanceScore >= 3 // 最低相关性阈值
+    // 按相关性和分数排序
+    return uniquePosts.sort((a, b) => {
+      // 优先考虑分数
+      if (b.score !== a.score) return b.score - a.score
+      // 然后考虑评论数量
+      return (b.commentCount || 0) - (a.commentCount || 0)
     })
-  }
-
-  // JSON API 备用方法
-  private async scrapeWithJSONAPI(appName: string, searchTerms: string[], subreddits: string[]): Promise<RedditPost[]> {
-    const posts: RedditPost[] = []
-
-    // 限制搜索范围以避免过多请求
-    for (const subreddit of subreddits.slice(0, 8)) {
-      for (const searchTerm of searchTerms.slice(0, 3)) {
-        try {
-          const url = `https://www.reddit.com/r/${subreddit}/search.json?q=${encodeURIComponent(searchTerm)}&restrict_sr=1&sort=relevance&limit=25&t=all`
-          
-          const response = await fetch(url, {
-            headers: {
-              'User-Agent': this.getRandomUserAgent(),
-              'Accept': 'application/json'
-            }
-          })
-
-          if (response.ok) {
-            const data = await response.json()
-            if (data?.data?.children) {
-              const subredditPosts = this.parseJSONData(data.data.children, appName, searchTerm)
-              posts.push(...subredditPosts)
-            }
-          }
-
-          await this.delay(this.rateLimitDelay)
-        } catch (error) {
-          console.error(`JSON API error for r/${subreddit}:`, error.message)
-        }
-      }
-    }
-
-    return posts
-  }
-
-  // Pushshift 历史数据
-  private async scrapeWithPushshift(appName: string, searchTerms: string[]): Promise<RedditPost[]> {
-    const posts: RedditPost[] = []
-
-    for (const searchTerm of searchTerms.slice(0, 4)) {
-      try {
-        const after = Math.floor((Date.now() - 90 * 24 * 60 * 60 * 1000) / 1000) // 90天前
-        const url = `https://api.pushshift.io/reddit/search/submission/?q=${encodeURIComponent(searchTerm)}&size=100&after=${after}&sort=desc&sort_type=score`
-        
-        const response = await fetch(url, {
-          headers: {
-            'User-Agent': this.getRandomUserAgent()
-          }
-        })
-
-        if (response.ok) {
-          const data = await response.json()
-          if (data?.data && Array.isArray(data.data)) {
-            const pushshiftPosts = this.parsePushshiftData(data.data, appName, searchTerm)
-            posts.push(...pushshiftPosts)
-          }
-        }
-
-        await this.delay(1000)
-      } catch (error) {
-        console.error(`Pushshift error for "${searchTerm}":`, error.message)
-      }
-    }
-
-    return posts
-  }
-
-  // 解析 JSON 数据
-  private parseJSONData(children: any[], appName: string, searchTerm: string): RedditPost[] {
-    const posts: RedditPost[] = []
-    const appNameLower = appName.toLowerCase()
-    const appNameWords = appNameLower.split(/\s+/)
-
-    for (const child of children) {
-      try {
-        const post = child.data
-        if (!post) continue
-
-        const title = post.title || ''
-        const selftext = post.selftext || ''
-        const titleLower = title.toLowerCase()
-        const selftextLower = selftext.toLowerCase()
-
-        const relevanceScore = this.calculateRelevanceScore(
-          { title: titleLower, text: selftextLower }, 
-          appNameLower, 
-          appNameWords
-        )
-
-        if (relevanceScore < 2) continue
-
-        const content = selftext || title
-        if (content.length < 30) continue
-
-        posts.push({
-          text: content,
-          title: title,
-          score: post.score || 0,
-          date: new Date(post.created_utc * 1000).toISOString().split('T')[0],
-          subreddit: post.subreddit || 'unknown',
-          url: post.permalink ? `https://reddit.com${post.permalink}` : '',
-          author: post.author || 'Anonymous',
-          searchTerm: searchTerm,
-          upvoteRatio: post.upvote_ratio || 0,
-          commentCount: post.num_comments || 0,
-          postId: post.id || ''
-        })
-      } catch (error) {
-        console.error('Error parsing JSON post:', error)
-        continue
-      }
-    }
-
-    return posts
-  }
-
-  // 解析 Pushshift 数据
-  private parsePushshiftData(data: any[], appName: string, searchTerm: string): RedditPost[] {
-    const posts: RedditPost[] = []
-    const appNameLower = appName.toLowerCase()
-    const appNameWords = appNameLower.split(/\s+/)
-
-    for (const post of data) {
-      try {
-        const title = post.title || ''
-        const selftext = post.selftext || ''
-        const titleLower = title.toLowerCase()
-        const selftextLower = selftext.toLowerCase()
-
-        const relevanceScore = this.calculateRelevanceScore(
-          { title: titleLower, text: selftextLower }, 
-          appNameLower, 
-          appNameWords
-        )
-
-        if (relevanceScore < 2) continue
-
-        const content = selftext || title
-        if (content.length < 30) continue
-
-        posts.push({
-          text: content,
-          title: title,
-          score: post.score || 0,
-          date: new Date(post.created_utc * 1000).toISOString().split('T')[0],
-          subreddit: post.subreddit || 'unknown',
-          url: `https://reddit.com/r/${post.subreddit}/comments/${post.id}`,
-          author: post.author || 'Anonymous',
-          searchTerm: searchTerm,
-          upvoteRatio: 0,
-          commentCount: post.num_comments || 0,
-          postId: post.id || ''
-        })
-      } catch (error) {
-        console.error('Error parsing Pushshift post:', error)
-        continue
-      }
-    }
-
-    return posts
-  }
-
-  // 相关性评分算法
-  private calculateRelevanceScore(post: { title: string; text: string }, appNameLower: string, appNameWords: string[]): number {
-    let score = 0
-    const { title, text } = post
-
-    // 精确匹配应用名称
-    if (title.includes(appNameLower)) score += 15
-    if (text.includes(appNameLower)) score += 10
-
-    // 单词匹配
-    for (const word of appNameWords) {
-      if (word.length > 2) {
-        if (title.includes(word)) score += 5
-        if (text.includes(word)) score += 3
-      }
-    }
-
-    // 应用相关关键词
-    const appKeywords = ['app', 'application', 'mobile', 'download', 'install', 'update', 'version']
-    for (const keyword of appKeywords) {
-      if (title.includes(keyword) || text.includes(keyword)) score += 2
-    }
-
-    // 评价关键词
-    const reviewKeywords = ['review', 'feedback', 'experience', 'opinion', 'recommend', 'rating', 'thoughts']
-    for (const keyword of reviewKeywords) {
-      if (title.includes(keyword) || text.includes(keyword)) score += 3
-    }
-
-    // 问题关键词
-    const problemKeywords = ['problem', 'issue', 'bug', 'error', 'crash', 'broken', 'not working', 'help']
-    for (const keyword of problemKeywords) {
-      if (title.includes(keyword) || text.includes(keyword)) score += 3
-    }
-
-    // 负面指标
-    const negativeKeywords = ['spam', 'advertisement', 'promotion', 'affiliate', 'referral']
-    for (const keyword of negativeKeywords) {
-      if (title.includes(keyword) || text.includes(keyword)) score -= 10
-    }
-
-    return score
-  }
-
-  // 🆕 增强的去重和过滤 - 支持自定义最大帖子数
-  private enhancedDeduplicationAndFilter(posts: RedditPost[], appName: string, maxPosts: number = 200): RedditPost[] {
-    console.log(`🔧 Enhanced deduplication and filtering: ${posts.length} input posts`)
-    console.log(`🎯 Target final posts: ${maxPosts}`)
-
-    // 去重
-    const seenUrls = new Set<string>()
-    const seenContent = new Set<string>()
-    const uniquePosts = posts.filter(post => {
-      const urlKey = post.url || `${post.title}_${post.author}_${post.date}`
-      const contentKey = post.text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ')
-      
-      if (seenUrls.has(urlKey) || seenContent.has(contentKey)) {
-        return false
-      }
-      
-      seenUrls.add(urlKey)
-      seenContent.add(contentKey)
-      return true
-    })
-
-    console.log(`📊 After deduplication: ${uniquePosts.length} posts`)
-
-    // 🆕 调整过滤标准以保留更多帖子
-    const appNameLower = appName.toLowerCase()
-    const appNameWords = appNameLower.split(/\s+/)
-    
-    const filteredPosts = uniquePosts.filter(post => {
-      const text = post.text.toLowerCase()
-      const title = post.title.toLowerCase()
-      
-      // 🆕 放宽质量过滤标准
-      if (post.text.length < 30 || post.text.length > 10000) return false // 降低最小长度要求
-      if (post.score < -20) return false // 放宽评分要求
-      
-      // 内容质量过滤
-      if (text.includes('[removed]') || text.includes('[deleted]')) return false
-      if (text.includes('automod') || text.includes('this post has been removed')) return false
-      if (title.includes('daily thread') || title.includes('weekly thread')) return false
-      if (post.isStickied) return false // 过滤置顶帖
-      
-      // 🆕 降低相关性过滤阈值
-      const relevanceScore = this.calculateRelevanceScore({ title, text }, appNameLower, appNameWords)
-      if (relevanceScore < 2) return false // 从4降低到2
-      
-      // 垃圾内容过滤
-      const spamIndicators = ['click here', 'buy now', 'limited time', 'act fast', 'make money', 'get rich']
-      if (spamIndicators.some(indicator => text.includes(indicator))) return false
-      
-      return true
-    })
-
-    console.log(`📊 After enhanced filtering: ${filteredPosts.length} posts`)
-
-    // 🆕 最终排序和选择 - 使用用户指定的最大数量
-    const rankedPosts = filteredPosts
-      .map(post => ({
-        ...post,
-        relevanceScore: this.calculateEnhancedRelevanceScore(post, appName)
-      }))
-      .sort((a, b) => b.relevanceScore - a.relevanceScore)
-      .slice(0, maxPosts) // 🆕 使用用户指定的最大数量
-
-    console.log(`✅ Enhanced processing completed: ${rankedPosts.length} final posts (target: ${maxPosts})`)
-    
-    return rankedPosts
-  }
-
-  // 增强的相关性评分
-  private calculateEnhancedRelevanceScore(post: RedditPost, appName: string): number {
-    const appNameLower = appName.toLowerCase()
-    const text = post.text.toLowerCase()
-    const title = post.title.toLowerCase()
-    
-    let score = 0
-    
-    // Reddit 指标
-    score += Math.min(post.score * 0.1, 20)
-    score += Math.min((post.commentCount || 0) * 0.2, 15)
-    score += (post.gilded || 0) * 5 // 获得金币的帖子通常质量更高
-    score += post.text.length / 100
-    
-    // 相关性因素
-    if (title.includes(appNameLower)) score += 20
-    if (text.includes(appNameLower)) score += 15
-    
-    // 应用特定术语
-    const appTerms = [`${appNameLower} app`, `${appNameLower} application`]
-    for (const term of appTerms) {
-      if (title.includes(term) || text.includes(term)) score += 10
-    }
-    
-    // 评价指标
-    const reviewTerms = ['review', 'experience', 'opinion', 'recommend', 'rating', 'feedback', 'thoughts']
-    for (const term of reviewTerms) {
-      if (title.includes(term)) score += 6
-      if (text.includes(term)) score += 4
-    }
-    
-    // 问题指标
-    const problemTerms = ['problem', 'issue', 'bug', 'error', 'crash', 'broken', 'not working', 'disappointed', 'frustrated']
-    for (const term of problemTerms) {
-      if (title.includes(term)) score += 5
-      if (text.includes(term)) score += 3
-    }
-    
-    // 质量指标
-    if (post.upvoteRatio && post.upvoteRatio > 0.8) score += 8
-    if (post.text.length > 300) score += 5
-    if (post.author !== 'Anonymous' && post.author !== 'RSS') score += 3
-    
-    // Subreddit 相关性
-    const relevantSubreddits = ['apps', 'androidapps', 'iosapps', 'reviews', 'software', 'technology']
-    if (relevantSubreddits.includes(post.subreddit.toLowerCase())) score += 8
-    
-    // 时效性加分
-    const postDate = new Date(post.date)
-    const daysSincePost = (Date.now() - postDate.getTime()) / (1000 * 60 * 60 * 24)
-    if (daysSincePost < 30) score += 5
-    else if (daysSincePost < 90) score += 2
-    
-    return score
   }
 }
 
@@ -780,11 +620,17 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { appName, scrapingSessionId, maxPosts = 200 }: ScrapeRequest = await req.json() // 🆕 接收 maxPosts 参数
+    const { 
+      appName, 
+      userSearchTerm, // 🆕 接收用户原始搜索词
+      scrapingSessionId, 
+      maxPosts = 400 
+    }: ScrapeRequest = await req.json()
 
-    if (!appName) {
+    // 至少需要一个搜索条件
+    if (!appName && !userSearchTerm) {
       return new Response(
-        JSON.stringify({ error: 'Missing appName parameter' }),
+        JSON.stringify({ error: 'Missing appName or userSearchTerm parameter' }),
         { 
           status: 400, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -792,15 +638,17 @@ Deno.serve(async (req) => {
       )
     }
 
-    console.log(`🚀 Enhanced Reddit scraping with API for: "${appName}"`)
+    console.log(`🚀 Optimized Reddit scraping started`)
+    console.log(`👤 User search term: "${userSearchTerm || 'not provided'}"`)
+    console.log(`📱 App name: "${appName || 'not provided'}"`)
     console.log(`🔑 Reddit API status: ${REDDIT_CLIENT_ID ? 'Configured' : 'Not configured'}`)
-    console.log(`📊 Target max posts: ${maxPosts}`) // 🆕 显示目标帖子数
+    console.log(`📊 Target max posts: ${maxPosts}`)
 
-    const scraper = new EnhancedRedditScraper()
-    const posts = await scraper.scrapeReddit(appName, maxPosts) // 🆕 传递 maxPosts 参数
+    const scraper = new OptimizedRedditScraper()
+    const posts = await scraper.scrapeReddit(userSearchTerm, appName, maxPosts)
 
-    // 保存到数据库
-    if (scrapingSessionId && posts.length > 0) {
+    // 保存到数据库并更新scraper状态
+    if (scrapingSessionId) {
       try {
         console.log(`💾 Saving ${posts.length} posts to database...`)
         
@@ -808,6 +656,15 @@ Deno.serve(async (req) => {
           Deno.env.get('SUPABASE_URL') ?? '',
           Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
         )
+
+        // 更新scraper状态为running
+        await supabaseClient
+          .from('scraping_sessions')
+          .update({
+            reddit_scraper_status: 'running',
+            reddit_started_at: new Date().toISOString()
+          })
+          .eq('id', scrapingSessionId)
 
         const postsToSave = posts.map(post => ({
           scraping_session_id: scrapingSessionId,
@@ -827,10 +684,10 @@ Deno.serve(async (req) => {
             post_id: post.postId,
             gilded: post.gilded,
             is_stickied: post.isStickied,
-            relevance_score: (post as any).relevanceScore || 0,
-            scraper_version: 'api_enhanced_v5.0', // 🆕 更新版本号
-            api_used: REDDIT_CLIENT_ID ? true : false,
-            max_posts_target: maxPosts // 🆕 记录目标帖子数
+            scraper_version: 'enhanced_api_v7.0',
+            user_search_term: userSearchTerm, // 🆕 记录用户搜索词
+            app_name_used: appName, // 🆕 记录应用名
+            search_strategy: 'user_term_priority_enhanced'
           }
         }))
 
@@ -852,45 +709,67 @@ Deno.serve(async (req) => {
 
         console.log(`✅ Successfully saved all ${postsToSave.length} Reddit posts to database`)
 
+        // 更新scraper状态为completed
+        await supabaseClient
+          .from('scraping_sessions')
+          .update({
+            reddit_scraper_status: 'completed',
+            reddit_completed_at: new Date().toISOString(),
+            reddit_posts: posts.length
+          })
+          .eq('id', scrapingSessionId)
+
+        console.log(`✅ Reddit scraper status updated to completed`)
+
       } catch (saveError) {
         console.error('❌ Error saving Reddit posts to database:', saveError)
+
+        // 更新scraper状态为failed
+        try {
+          const supabaseClient = createClient(
+            Deno.env.get('SUPABASE_URL') ?? '',
+            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+          )
+          
+          await supabaseClient
+            .from('scraping_sessions')
+            .update({
+              reddit_scraper_status: 'failed',
+              reddit_completed_at: new Date().toISOString(),
+              reddit_error_message: saveError.message
+            })
+            .eq('id', scrapingSessionId)
+        } catch (updateError) {
+          console.error('❌ Failed to update scraper status:', updateError)
+        }
       }
     }
 
     // 计算统计信息
     const stats = {
       totalPosts: posts.length,
-      targetMaxPosts: maxPosts, // 🆕 添加目标帖子数
+      targetMaxPosts: maxPosts,
       subreddits: [...new Set(posts.map(p => p.subreddit))],
       averageScore: posts.length > 0 ? Math.round(posts.reduce((sum, p) => sum + p.score, 0) / posts.length) : 0,
-      averageRelevanceScore: posts.length > 0 ? Math.round(posts.reduce((sum, p) => sum + ((p as any).relevanceScore || 0), 0) / posts.length) : 0,
       dateRange: posts.length > 0 ? {
         earliest: Math.min(...posts.map(p => new Date(p.date).getTime())),
         latest: Math.max(...posts.map(p => new Date(p.date).getTime()))
       } : null,
-      searchTermsUsed: posts.length > 0 ? [...new Set(posts.map(p => p.searchTerm).filter(Boolean))] : [],
-      topSubreddits: Object.entries(
-        posts.reduce((acc, p) => {
-          acc[p.subreddit] = (acc[p.subreddit] || 0) + 1
-          return acc
-        }, {} as Record<string, number>)
-      ).sort(([,a], [,b]) => b - a).slice(0, 5),
+      searchStrategy: {
+        userSearchTerm: userSearchTerm || null,
+        appNameUsed: appName || null,
+        strategy: 'user_term_priority_enhanced_api'
+      },
       apiUsed: REDDIT_CLIENT_ID ? true : false,
-      gildedPosts: posts.filter(p => (p.gilded || 0) > 0).length,
-      filteringStats: { // 🆕 添加过滤统计
-        targetReached: posts.length >= maxPosts * 0.8, // 是否达到目标的80%
-        qualityThreshold: 'relaxed' // 使用了放宽的过滤标准
-      }
+      gildedPosts: posts.filter(p => (p.gilded || 0) > 0).length
     }
 
-    console.log(`\n📊 === ENHANCED REDDIT SCRAPING STATISTICS ===`)
+    console.log(`\n📊 === OPTIMIZED REDDIT SCRAPING STATISTICS ===`)
     console.log(`✅ Total posts: ${stats.totalPosts}`)
     console.log(`🎯 Target was: ${stats.targetMaxPosts}`)
-    console.log(`📈 Target achieved: ${((stats.totalPosts / stats.targetMaxPosts) * 100).toFixed(1)}%`) // 🆕 显示达成率
-    console.log(`🎯 Average relevance score: ${stats.averageRelevanceScore}`)
+    console.log(`📈 Achievement rate: ${((stats.totalPosts / stats.targetMaxPosts) * 100).toFixed(1)}%`)
     console.log(`📈 Average Reddit score: ${stats.averageScore}`)
     console.log(`🏷️ Subreddits found: ${stats.subreddits.length}`)
-    console.log(`🔍 Search terms used: ${stats.searchTermsUsed.length}`)
     console.log(`🔑 Reddit API used: ${stats.apiUsed}`)
     console.log(`🏆 Gilded posts: ${stats.gildedPosts}`)
 
@@ -898,22 +777,22 @@ Deno.serve(async (req) => {
       JSON.stringify({ 
         posts,
         stats,
-        message: `Enhanced Reddit scraping completed: ${posts.length} high-quality, relevant posts found (target: ${maxPosts}) using ${stats.apiUsed ? 'Reddit API + fallback methods' : 'fallback methods only'} based on "${appName}"`,
+        message: `Enhanced Reddit scraping completed: ${posts.length} posts found using expanded API strategy with user search term "${userSearchTerm || 'not provided'}" and app keywords from "${appName || 'not provided'}"`,
         timestamp: new Date().toISOString(),
-        scraper_version: 'api_enhanced_v5.0', // 🆕 更新版本号
-        search_optimization: 'user_provided_app_name',
-        filtering_approach: 'relaxed_for_more_data', // 🆕 说明过滤策略
-        api_integration: {
-          reddit_api_used: stats.apiUsed,
-          client_id_configured: REDDIT_CLIENT_ID ? true : false,
-          user_agent: REDDIT_USER_AGENT
+        scraper_version: 'enhanced_api_v7.0',
+        search_optimization: {
+          user_term_priority: true,
+          app_name_keywords: true,
+          enhanced_api_strategy: true,
+          app_specific_subreddits: true,
+          advanced_search_patterns: true
         }
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
   } catch (error) {
-    console.error('❌ Critical error in Enhanced Reddit scraping:', error)
+    console.error('❌ Critical error in Optimized Reddit scraping:', error)
     return new Response(
       JSON.stringify({ 
         error: 'Failed to scrape Reddit',
@@ -922,12 +801,7 @@ Deno.serve(async (req) => {
         stats: {
           totalPosts: 0,
           errorCount: 1,
-          scraper_version: 'api_enhanced_v5.0',
-          api_integration: {
-            reddit_api_used: false,
-            client_id_configured: REDDIT_CLIENT_ID ? true : false,
-            error: error.message
-          }
+          scraper_version: 'enhanced_api_v7.0'
         },
         timestamp: new Date().toISOString()
       }),

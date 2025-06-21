@@ -56,65 +56,62 @@ export const LandingPage: React.FC = () => {
     setShowAppSelection(true)
   }
 
-  const handleAppsSelected = async (selectedApps: AppInfo[]) => {
-    if (selectedApps.length === 0) {
-      alert('Please select at least one app for analysis')
+  const handleAppsSelected = async (selectedApps: AppInfo[], enabledPlatforms: string[]) => {
+    if (enabledPlatforms.length === 0) {
+      alert('Please select at least one platform for analysis')
       return
     }
 
     setIsGenerating(true)
     
     try {
-      // Create a report for each selected app or combine them
+      // Create a report based on selected apps and platforms
+      let reportName: string
+      let appName: string
+      
       if (selectedApps.length === 1) {
         // Single app analysis
-        const app = selectedApps[0]
-        const report = await createNewReport(user!.id, app.name)
-        
-        // Start report generation with specific app info
-        const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-report`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            reportId: report.id,
-            appName: app.name,
-            appInfo: app // Pass complete app information
-          })
-        })
-
-        if (response.ok) {
-          navigate('/dashboard')
-        } else {
-          const errorData = await response.json()
-          throw new Error(errorData.error || 'Failed to start report generation')
-        }
-      } else {
-        // Multiple apps - create combined analysis
+        reportName = selectedApps[0].name
+        appName = selectedApps[0].name
+      } else if (selectedApps.length > 1) {
+        // Multiple apps analysis
         const appNames = selectedApps.map(app => app.name).join(', ')
-        const report = await createNewReport(user!.id, `${companyName} (${selectedApps.length} apps)`)
-        
-        const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-report`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            reportId: report.id,
-            appName: appNames,
-            selectedApps: selectedApps // Pass all selected apps
-          })
-        })
+        reportName = `${companyName} (${selectedApps.length} apps)`
+        appName = appNames
+      } else {
+        // Platform-only analysis (no specific apps)
+        reportName = `${companyName} (${enabledPlatforms.map(p => 
+          p === 'app_store' ? 'iOS' : 
+          p === 'google_play' ? 'Android' : 
+          p === 'reddit' ? 'Reddit' : p
+        ).join(', ')})`
+        appName = companyName
+      }
+      
+      const report = await createNewReport(user!.id, reportName)
 
-        if (response.ok) {
-          navigate('/dashboard')
-        } else {
-          const errorData = await response.json()
-          throw new Error(errorData.error || 'Failed to start report generation')
-        }
+      // Start report generation
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-report`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          reportId: report.id,
+          appName: appName,
+          appInfo: selectedApps.length === 1 ? selectedApps[0] : undefined,
+          selectedApps: selectedApps.length > 1 ? selectedApps : undefined,
+          enabledPlatforms: enabledPlatforms,
+          redditOnly: enabledPlatforms.length === 1 && enabledPlatforms[0] === 'reddit'
+        })
+      })
+
+      if (response.ok) {
+        navigate('/dashboard')
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to start report generation')
       }
     } catch (error) {
       console.error('Error generating report:', error)
@@ -125,42 +122,7 @@ export const LandingPage: React.FC = () => {
     }
   }
 
-  // 🆕 处理仅 Reddit 分析
-  const handleRedditOnlySelected = async () => {
-    setIsGenerating(true)
-    
-    try {
-      // 创建仅 Reddit 分析的报告
-      const report = await createNewReport(user!.id, `${companyName} (Reddit Only)`)
-      
-      // 启动仅 Reddit 的报告生成
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-report`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          reportId: report.id,
-          appName: companyName, // 使用用户输入的公司名称
-          redditOnly: true // 🔑 标识这是仅 Reddit 分析
-        })
-      })
 
-      if (response.ok) {
-        navigate('/dashboard')
-      } else {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to start Reddit analysis')
-      }
-    } catch (error) {
-      console.error('Error generating Reddit-only report:', error)
-      alert('Error generating Reddit analysis, please try again later')
-    } finally {
-      setIsGenerating(false)
-      setCompanyName('')
-    }
-  }
 
   const features = [
     {
@@ -384,13 +346,13 @@ export const LandingPage: React.FC = () => {
 
       <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
       
-      <AppSelectionModal
-        isOpen={showAppSelection}
-        onClose={() => setShowAppSelection(false)}
-        companyName={companyName}
-        onAppsSelected={handleAppsSelected}
-        onRedditOnlySelected={handleRedditOnlySelected}
-      />
+              <AppSelectionModal
+          isOpen={showAppSelection}
+          onClose={() => setShowAppSelection(false)}
+          companyName={companyName}
+          onAppsSelected={handleAppsSelected}
+          onRedditOnlySelected={() => {}} // Deprecated, keeping for compatibility
+        />
     </div>
   )
 }

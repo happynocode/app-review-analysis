@@ -273,13 +273,58 @@ Deno.serve(async (req) => {
       console.log(`⭐ Average rating: ${(reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)}`)
     }
 
-    // 保存到数据库
-    if (scrapingSessionId && reviews.length > 0) {
+    // 保存到数据库并更新scraper状态
+    if (scrapingSessionId) {
       try {
+        // 🆕 首先更新scraper状态为running
+        const supabaseClient = createClient(
+          Deno.env.get('SUPABASE_URL') ?? '',
+          Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+        )
+
+        await supabaseClient
+          .from('scraping_sessions')
+          .update({
+            google_play_scraper_status: 'running',
+            google_play_started_at: new Date().toISOString()
+          })
+          .eq('id', scrapingSessionId)
+
         await saveReviewsToDatabase(reviews, scrapingSessionId, packageName)
+
+        // 🆕 更新scraper状态为completed
+        await supabaseClient
+          .from('scraping_sessions')
+          .update({
+            google_play_scraper_status: 'completed',
+            google_play_completed_at: new Date().toISOString(),
+            google_play_reviews: reviews.length
+          })
+          .eq('id', scrapingSessionId)
+
+        console.log(`✅ Google Play scraper status updated to completed`)
+
       } catch (saveError) {
         console.error('❌ Failed to save to database:', saveError.message)
-        // 不要因为数据库错误而失败整个请求
+
+        // 🆕 更新scraper状态为failed
+        try {
+          const supabaseClient = createClient(
+            Deno.env.get('SUPABASE_URL') ?? '',
+            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+          )
+          
+          await supabaseClient
+            .from('scraping_sessions')
+            .update({
+              google_play_scraper_status: 'failed',
+              google_play_completed_at: new Date().toISOString(),
+              google_play_error_message: saveError.message
+            })
+            .eq('id', scrapingSessionId)
+        } catch (updateError) {
+          console.error('❌ Failed to update scraper status:', updateError)
+        }
       }
     }
 

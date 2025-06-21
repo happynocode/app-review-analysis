@@ -636,8 +636,8 @@ Deno.serve(async (req) => {
     const scraper = new AppStoreReviewScraper()
     const result = await scraper.scrapeAppStoreReviews(appName, appId, maxPages, countries)
 
-    // 保存到数据库
-    if (scrapingSessionId && result.reviews.length > 0) {
+    // 保存到数据库并更新scraper状态
+    if (scrapingSessionId) {
       try {
         console.log(`💾 Saving ${result.reviews.length} reviews to database...`)
         
@@ -645,6 +645,15 @@ Deno.serve(async (req) => {
           Deno.env.get('SUPABASE_URL') ?? '',
           Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
         )
+
+        // 🆕 首先更新scraper状态为running
+        await supabaseClient
+          .from('scraping_sessions')
+          .update({
+            app_store_scraper_status: 'running',
+            app_store_started_at: new Date().toISOString()
+          })
+          .eq('id', scrapingSessionId)
 
         const reviewsToSave = result.reviews.map(review => ({
           scraping_session_id: scrapingSessionId,
@@ -686,8 +695,39 @@ Deno.serve(async (req) => {
 
         console.log(`✅ Successfully saved all ${reviewsToSave.length} reviews to database`)
 
+        // 🆕 更新scraper状态为completed
+        await supabaseClient
+          .from('scraping_sessions')
+          .update({
+            app_store_scraper_status: 'completed',
+            app_store_completed_at: new Date().toISOString(),
+            app_store_reviews: result.reviews.length
+          })
+          .eq('id', scrapingSessionId)
+
+        console.log(`✅ App Store scraper status updated to completed`)
+
       } catch (saveError) {
         console.error('❌ Error saving to database:', saveError)
+        
+        // 🆕 更新scraper状态为failed
+        try {
+          const supabaseClient = createClient(
+            Deno.env.get('SUPABASE_URL') ?? '',
+            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+          )
+          
+          await supabaseClient
+            .from('scraping_sessions')
+            .update({
+              app_store_scraper_status: 'failed',
+              app_store_completed_at: new Date().toISOString(),
+              app_store_error_message: saveError.message
+            })
+            .eq('id', scrapingSessionId)
+        } catch (updateError) {
+          console.error('❌ Failed to update scraper status:', updateError)
+        }
       }
     }
 

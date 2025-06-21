@@ -1,4 +1,5 @@
-import { createClient } from 'npm:@supabase/supabase-js@2'
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -81,11 +82,15 @@ async function completeReportAnalysis(reportId: string, supabaseClient: any) {
       throw new Error('Failed to fetch report information')
     }
 
-    // Get all completed analysis tasks for this report
+    // Get all completed themes analysis tasks for this report
     const { data: completedTasks, error: tasksError } = await supabaseClient
       .from('analysis_tasks')
-      .select('themes_data, batch_index')
+      .select(`
+        themes_data,
+        batch_index
+      `)
       .eq('report_id', reportId)
+      .eq('analysis_type', 'themes')
       .eq('status', 'completed')
       .order('batch_index', { ascending: true })
 
@@ -94,12 +99,12 @@ async function completeReportAnalysis(reportId: string, supabaseClient: any) {
     }
 
     if (!completedTasks || completedTasks.length === 0) {
-      throw new Error('No completed analysis tasks found')
+      throw new Error('No completed themes analysis tasks found')
     }
 
-    console.log(`📊 Found ${completedTasks.length} completed analysis tasks`)
+    console.log(`📊 Found ${completedTasks.length} completed themes analysis tasks`)
 
-    // Aggregate all themes from completed tasks
+    // Aggregate themes data from all batches
     const allThemes = []
     for (const task of completedTasks) {
       if (task.themes_data && task.themes_data.themes) {
@@ -107,12 +112,12 @@ async function completeReportAnalysis(reportId: string, supabaseClient: any) {
       }
     }
 
-    console.log(`📋 Total themes before merging: ${allThemes.length}`)
+    console.log(`📋 Aggregated ${allThemes.length} themes from all batches`)
 
-    // Merge and deduplicate themes
-    const finalThemes = await mergeAndDeduplicateThemes(report.app_name, allThemes)
-    
-    console.log(`🎯 Final themes after merging: ${finalThemes.length}`)
+    // Process and merge themes
+    const finalThemes = await processThemes(report.app_name, allThemes)
+
+    console.log(`🎯 Final results: ${finalThemes.length} themes after processing`)
 
     // Save final themes to database
     await saveFinalThemes(reportId, finalThemes, supabaseClient)
@@ -127,21 +132,40 @@ async function completeReportAnalysis(reportId: string, supabaseClient: any) {
       .eq('id', reportId)
 
     const totalTime = Date.now() - startTime
-    console.log(`✅ Report ${reportId} completed successfully in ${Math.round(totalTime / 1000)}s`)
+    console.log(`✅ Report analysis completed in ${Math.round(totalTime / 1000)} seconds`)
+
+    // Log completion metric
+    await logSystemMetric(supabaseClient, 'report_completion_time', totalTime / 1000, 'seconds', {
+      report_id: reportId,
+      themes_count: finalThemes.length,
+      status: 'success'
+    })
 
   } catch (error) {
-    console.error(`❌ Error completing report ${reportId}:`, error)
+    console.error(`❌ Error completing report analysis for ${reportId}:`, error)
     
-    // Mark report as error
+    // Mark report as failed
     await supabaseClient
       .from('reports')
-      .update({ status: 'error' })
+      .update({
+        status: 'failed',
+        error_message: error.message,
+        updated_at: new Date().toISOString()
+      })
       .eq('id', reportId)
+
+    // Log failure metric
+    await logSystemMetric(supabaseClient, 'report_completion_failures', 1, 'count', {
+      report_id: reportId,
+      error: error.message
+    })
+
+    throw error
   }
 }
 
-async function mergeAndDeduplicateThemes(appName: string, allThemes: any[]) {
-  console.log(`🔄 Merging and deduplicating ${allThemes.length} themes for ${appName}`)
+async function processThemes(appName: string, allThemes: any[]) {
+  console.log(`🔄 Processing ${allThemes.length} themes for ${appName}`)
 
   if (allThemes.length === 0) {
     return [{
@@ -162,6 +186,149 @@ async function mergeAndDeduplicateThemes(appName: string, allThemes: any[]) {
   }
 }
 
+async function processSentiment(sentimentBatches: any[]) {
+  console.log(`🔄 Processing ${sentimentBatches.length} sentiment batches`)
+
+  if (sentimentBatches.length === 0) {
+    return {
+      positive: { count: 0, percentage: 0, examples: [] },
+      neutral: { count: 0, percentage: 0, examples: [] },
+      negative: { count: 0, percentage: 0, examples: [] }
+    }
+  }
+
+  // Aggregate sentiment data from all batches
+  const aggregated = {
+    positive: { count: 0, examples: [] },
+    neutral: { count: 0, examples: [] },
+    negative: { count: 0, examples: [] }
+  }
+
+  for (const batch of sentimentBatches) {
+    if (batch.sentiment) {
+      aggregated.positive.count += batch.sentiment.positive?.count || 0
+      aggregated.neutral.count += batch.sentiment.neutral?.count || 0
+      aggregated.negative.count += batch.sentiment.negative?.count || 0
+
+      if (batch.sentiment.positive?.examples) {
+        aggregated.positive.examples.push(...batch.sentiment.positive.examples)
+      }
+      if (batch.sentiment.neutral?.examples) {
+        aggregated.neutral.examples.push(...batch.sentiment.neutral.examples)
+      }
+      if (batch.sentiment.negative?.examples) {
+        aggregated.negative.examples.push(...batch.sentiment.negative.examples)
+      }
+    }
+  }
+
+  const total = aggregated.positive.count + aggregated.neutral.count + aggregated.negative.count
+
+  return {
+    positive: {
+      count: aggregated.positive.count,
+      percentage: total > 0 ? Math.round((aggregated.positive.count / total) * 100) : 0,
+      examples: aggregated.positive.examples.slice(0, 5)
+    },
+    neutral: {
+      count: aggregated.neutral.count,
+      percentage: total > 0 ? Math.round((aggregated.neutral.count / total) * 100) : 0,
+      examples: aggregated.neutral.examples.slice(0, 5)
+    },
+    negative: {
+      count: aggregated.negative.count,
+      percentage: total > 0 ? Math.round((aggregated.negative.count / total) * 100) : 0,
+      examples: aggregated.negative.examples.slice(0, 5)
+    }
+  }
+}
+
+async function processKeywords(allKeywords: any[]) {
+  console.log(`🔄 Processing ${allKeywords.length} keywords`)
+
+  if (allKeywords.length === 0) {
+    return []
+  }
+
+  // Group keywords by keyword text and aggregate frequency
+  const keywordMap = new Map()
+
+  for (const keyword of allKeywords) {
+    const key = keyword.keyword?.toLowerCase()
+    if (key) {
+      if (keywordMap.has(key)) {
+        const existing = keywordMap.get(key)
+        existing.frequency += keyword.frequency || 1
+        existing.examples.push(...(keyword.examples || []))
+      } else {
+        keywordMap.set(key, {
+          keyword: keyword.keyword,
+          frequency: keyword.frequency || 1,
+          context: keyword.context || 'neutral',
+          examples: keyword.examples || []
+        })
+      }
+    }
+  }
+
+  // Convert to array and sort by frequency
+  return Array.from(keywordMap.values())
+    .sort((a, b) => b.frequency - a.frequency)
+    .slice(0, 30) // Top 30 keywords
+    .map(keyword => ({
+      ...keyword,
+      examples: keyword.examples.slice(0, 3) // Limit examples
+    }))
+}
+
+async function processIssues(allIssues: any[]) {
+  console.log(`🔄 Processing ${allIssues.length} issues`)
+
+  if (allIssues.length === 0) {
+    return []
+  }
+
+  // Group similar issues and aggregate frequency
+  const issueMap = new Map()
+
+  for (const issue of allIssues) {
+    const key = issue.title?.toLowerCase()
+    if (key) {
+      if (issueMap.has(key)) {
+        const existing = issueMap.get(key)
+        existing.frequency += issue.frequency || 1
+        existing.quotes.push(...(issue.quotes || []))
+        existing.suggestions.push(...(issue.suggestions || []))
+      } else {
+        issueMap.set(key, {
+          title: issue.title,
+          description: issue.description,
+          severity: issue.severity || 'medium',
+          frequency: issue.frequency || 1,
+          quotes: issue.quotes || [],
+          suggestions: issue.suggestions || []
+        })
+      }
+    }
+  }
+
+  // Convert to array and sort by severity and frequency
+  const severityOrder = { high: 3, medium: 2, low: 1 }
+  
+  return Array.from(issueMap.values())
+    .sort((a, b) => {
+      const severityDiff = (severityOrder[b.severity] || 2) - (severityOrder[a.severity] || 2)
+      if (severityDiff !== 0) return severityDiff
+      return b.frequency - a.frequency
+    })
+    .slice(0, 20) // Top 20 issues
+    .map(issue => ({
+      ...issue,
+      quotes: issue.quotes.slice(0, 3), // Limit quotes
+      suggestions: [...new Set(issue.suggestions)].slice(0, 3) // Dedupe and limit suggestions
+    }))
+}
+
 async function intelligentMergeWithDeepSeek(appName: string, allThemes: any[]) {
   const deepseekApiKey = Deno.env.get('DEEPSEEK_API_KEY')
   
@@ -174,18 +341,38 @@ async function intelligentMergeWithDeepSeek(appName: string, allThemes: any[]) {
     // Limit themes for API call
     const limitedThemes = allThemes.slice(0, 80) // Limit to prevent token overflow
 
-    const prompt = `Merge and deduplicate these themes for "${appName}". Return exactly 25 final themes.
+    // Extract all original quotes for validation
+    const originalQuotes = new Set()
+    limitedThemes.forEach(theme => {
+      if (Array.isArray(theme.quotes)) {
+        theme.quotes.forEach(quote => {
+          if (quote && typeof quote === 'string') {
+            originalQuotes.add(quote.trim())
+          }
+        })
+      }
+    })
+
+    const prompt = `Merge and deduplicate these themes for "${appName}". Return between 10-50 final themes based on what makes most sense for the data quality and diversity.
 
 Input themes (${limitedThemes.length}):
 ${JSON.stringify(limitedThemes, null, 2)}
 
-Instructions:
+CRITICAL INSTRUCTIONS:
 1. Merge similar themes together
 2. Remove duplicates
 3. Prioritize themes by importance and frequency
 4. Ensure each final theme is distinct and meaningful
-5. Combine quotes and suggestions from merged themes
-6. Return exactly 25 themes, ranked by importance
+5. ONLY use quotes that exist in the input themes - DO NOT generate new quotes
+6. When merging themes, combine the existing quotes from the input themes
+7. Return 10-50 themes based on data quality - use your judgment to determine the optimal number
+
+QUOTE HANDLING RULES:
+- NEVER create, modify, or paraphrase quotes
+- ONLY select from the exact quotes provided in the input themes
+- When merging themes, combine the original quotes from those themes
+- If no suitable quotes exist in input, use empty quotes array []
+- Quotes must be verbatim from user reviews, not AI-generated summaries
 
 Return JSON only:
 {
@@ -193,188 +380,403 @@ Return JSON only:
     {
       "title": "Clear theme title (2-5 words)",
       "description": "Detailed description (2-3 sentences)",
-      "quotes": [
-        {
-          "text": "Representative quote",
-          "source": "App Store|Google Play|Reddit",
-          "date": "2025-01-10"
-        }
-      ],
-      "suggestions": [
-        "Specific actionable suggestion",
-        "Another concrete recommendation"
-      ]
+      "quotes": ["Exact quote from input themes only", "Another exact quote from input themes only"],
+      "suggestions": ["Actionable suggestion 1", "Actionable suggestion 2"]
     }
   ]
 }`
 
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout
+
+    const response = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         'Authorization': `Bearer ${deepseekApiKey}`,
-        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         model: 'deepseek-chat',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert product analyst specializing in theme consolidation. Always respond with valid JSON only.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.2,
-        max_tokens: 8000
-      })
+        messages: [{ role: 'user', content: prompt }],
+        stream: false,
+        max_tokens: 4000,
+        temperature: 0.7,
+      }),
+      signal: controller.signal
     })
+
+    clearTimeout(timeoutId)
 
     if (!response.ok) {
       throw new Error(`DeepSeek API error: ${response.status}`)
     }
 
-    const result = await response.json()
-    let content = result.choices[0].message.content.trim()
+    const data = await response.json()
+    const content = data.choices?.[0]?.message?.content
 
-    // Clean up the response
-    content = content.replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '').trim()
-
-    const mergedResult = JSON.parse(content)
-    
-    if (!mergedResult.themes || !Array.isArray(mergedResult.themes)) {
-      throw new Error('Invalid merged result structure')
+    if (!content) {
+      throw new Error('No content in DeepSeek response')
     }
 
-    console.log(`✅ DeepSeek merge completed: ${mergedResult.themes.length} final themes`)
-    return mergedResult.themes.slice(0, 25) // Ensure exactly 25 themes
+    // Clean the content by removing markdown code blocks and other formatting
+    let cleanContent = content.trim()
+    
+    // Remove ```json and ``` markers
+    cleanContent = cleanContent.replace(/^```json\s*/i, '')
+    cleanContent = cleanContent.replace(/```\s*$/, '')
+    
+    // Remove any leading/trailing whitespace and non-JSON content
+    cleanContent = cleanContent.trim()
+    
+    // Find JSON content between { and }
+    const jsonStart = cleanContent.indexOf('{')
+    const jsonEnd = cleanContent.lastIndexOf('}')
+    
+    if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+      cleanContent = cleanContent.slice(jsonStart, jsonEnd + 1)
+    }
+    
+    console.log('🧹 Cleaned DeepSeek response for JSON parsing')
+    
+    const result = JSON.parse(cleanContent)
+    if (result.themes && Array.isArray(result.themes)) {
+      // VALIDATE QUOTES: Ensure all quotes exist in original input
+      let invalidQuotesCount = 0
+      const validatedThemes = result.themes.map(theme => {
+        if (Array.isArray(theme.quotes)) {
+          const validQuotes = theme.quotes.filter(quote => {
+            const isValid = originalQuotes.has(quote?.trim())
+            if (!isValid && quote) {
+              invalidQuotesCount++
+              console.warn(`🚨 Invalid quote detected (not in original): "${quote.substring(0, 100)}..."`)
+            }
+            return isValid
+          })
+          return {
+            ...theme,
+            quotes: validQuotes
+          }
+        }
+        return theme
+      })
+
+      if (invalidQuotesCount > 0) {
+        console.warn(`⚠️ Removed ${invalidQuotesCount} invalid quotes that were not in original input`)
+      }
+
+      console.log(`✅ DeepSeek merge successful: ${validatedThemes.length} final themes`)
+      console.log(`🔍 Quote validation: Original had ${originalQuotes.size} unique quotes`)
+      return validatedThemes
+    } else {
+      throw new Error('Invalid themes format in API response')
+    }
 
   } catch (error) {
-    console.error('❌ DeepSeek merge failed:', error.message)
+    console.error('DeepSeek merge failed:', error)
     console.log('🔄 Falling back to rule-based merge')
     return ruleBasedMerge(allThemes)
   }
 }
 
 function ruleBasedMerge(allThemes: any[]) {
-  console.log(`🔧 Performing rule-based merge on ${allThemes.length} themes`)
+  console.log(`🔧 Using enhanced rule-based merge for ${allThemes.length} themes`)
 
-  // Group themes by similar titles
-  const themeGroups = new Map()
-  
-  for (const theme of allThemes) {
-    const normalizedTitle = theme.title
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, '')
-      .split(/\s+/)
-      .filter((word: string) => word.length > 2)
-      .slice(0, 3) // Take first 3 significant words
-      .sort()
-      .join('_')
+  // Step 1: Group similar themes based on title similarity
+  const themeGroups = []
+  const processed = new Set()
+
+  for (let i = 0; i < allThemes.length; i++) {
+    if (processed.has(i)) continue
     
-    if (!themeGroups.has(normalizedTitle)) {
-      themeGroups.set(normalizedTitle, [])
+    const currentTheme = allThemes[i]
+    if (!currentTheme.title) continue
+    
+    const group = {
+      themes: [currentTheme],
+      indices: [i]
     }
-    themeGroups.get(normalizedTitle).push(theme)
+    
+    // Find similar themes to merge
+    for (let j = i + 1; j < allThemes.length; j++) {
+      if (processed.has(j)) continue
+      
+      const otherTheme = allThemes[j]
+      if (!otherTheme.title) continue
+      
+      if (areThemesSimilar(currentTheme.title, otherTheme.title)) {
+        group.themes.push(otherTheme)
+        group.indices.push(j)
+        processed.add(j)
+      }
+    }
+    
+    themeGroups.push(group)
+    processed.add(i)
   }
-  
-  // Merge themes within each group
-  const mergedThemes = []
-  for (const [groupKey, groupThemes] of themeGroups) {
-    if (groupThemes.length === 1) {
-      mergedThemes.push(groupThemes[0])
+
+  console.log(`📊 Grouped ${allThemes.length} themes into ${themeGroups.length} groups`)
+
+  // Step 2: Merge themes within each group
+  const mergedThemes = themeGroups.map(group => {
+    if (group.themes.length === 1) {
+      // Single theme - just clean it up
+      const theme = group.themes[0]
+      return {
+        title: theme.title,
+        description: theme.description || 'No description available',
+        quotes: Array.isArray(theme.quotes) ? theme.quotes.slice(0, 5) : [],
+        suggestions: Array.isArray(theme.suggestions) ? theme.suggestions.slice(0, 5) : [],
+        importance_score: calculateImportanceScore(theme)
+      }
     } else {
-      // Merge multiple themes in the group
-      const mergedTheme = {
-        title: groupThemes[0].title,
-        description: groupThemes[0].description,
-        quotes: [],
-        suggestions: []
-      }
-      
-      // Collect all quotes and suggestions
-      for (const theme of groupThemes) {
-        if (theme.quotes) mergedTheme.quotes.push(...theme.quotes)
-        if (theme.suggestions) mergedTheme.suggestions.push(...theme.suggestions)
-      }
-      
-      // Deduplicate and limit
-      mergedTheme.quotes = Array.from(new Set(mergedTheme.quotes.map(q => q.text)))
-        .slice(0, 3)
-        .map(text => ({ text, source: 'App Store', date: '2025-01-10' }))
-      
-      mergedTheme.suggestions = Array.from(new Set(mergedTheme.suggestions)).slice(0, 3)
-      
-      mergedThemes.push(mergedTheme)
+      // Multiple themes - merge them intelligently
+      return mergeThemeGroup(group.themes)
     }
-  }
-  
-  // Sort by quality indicators and limit to 25
+  })
+
+  // Step 3: Sort by importance and limit to 50
   const finalThemes = mergedThemes
-    .sort((a, b) => {
-      const scoreA = (a.quotes?.length || 0) + (a.suggestions?.length || 0)
-      const scoreB = (b.quotes?.length || 0) + (b.suggestions?.length || 0)
-      return scoreB - scoreA
-    })
-    .slice(0, 25)
-  
+    .filter(theme => theme.title && theme.title.length > 0)
+    .sort((a, b) => (b.importance_score || 0) - (a.importance_score || 0))
+    .slice(0, 50)
+    .map(theme => ({
+      title: theme.title,
+      description: theme.description,
+      quotes: theme.quotes,
+      suggestions: theme.suggestions
+    }))
+
   console.log(`✅ Rule-based merge completed: ${finalThemes.length} final themes`)
   return finalThemes
 }
 
-async function saveFinalThemes(reportId: string, themes: any[], supabaseClient: any) {
-  console.log(`💾 Saving ${themes.length} final themes to database...`)
+// Helper function to check if two theme titles are similar
+function areThemesSimilar(title1: string, title2: string): boolean {
+  if (!title1 || !title2) return false
+  
+  const normalize = (str: string) => str.toLowerCase().trim()
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  
+  const norm1 = normalize(title1)
+  const norm2 = normalize(title2)
+  
+  // Exact match
+  if (norm1 === norm2) return true
+  
+  // Check if one contains the other (with minimum length)
+  if (norm1.length >= 5 && norm2.length >= 5) {
+    if (norm1.includes(norm2) || norm2.includes(norm1)) return true
+  }
+  
+  // Check word overlap (at least 70% common words)
+  const words1 = new Set(norm1.split(' ').filter(w => w.length > 2))
+  const words2 = new Set(norm2.split(' ').filter(w => w.length > 2))
+  
+  if (words1.size === 0 || words2.size === 0) return false
+  
+  const intersection = new Set([...words1].filter(w => words2.has(w)))
+  const union = new Set([...words1, ...words2])
+  
+  const similarity = intersection.size / union.size
+  return similarity >= 0.7
+}
 
-  try {
-    for (const theme of themes) {
-      // Create theme
-      const { data: themeData, error: themeError } = await supabaseClient
-        .from('themes')
-        .insert({
-          report_id: reportId,
-          title: theme.title,
-          description: theme.description
-        })
-        .select()
-        .single()
-
-      if (themeError) {
-        console.error('Error creating theme:', themeError)
-        continue
-      }
-
-      // Create quotes for this theme
-      if (theme.quotes && theme.quotes.length > 0) {
-        for (const quote of theme.quotes) {
-          await supabaseClient
-            .from('quotes')
-            .insert({
-              theme_id: themeData.id,
-              text: quote.text,
-              source: quote.source || 'App Store',
-              review_date: quote.date || '2025-01-10'
-            })
+// Helper function to merge a group of similar themes
+function mergeThemeGroup(themes: any[]): any {
+  // Choose the best title (longest meaningful one)
+  const bestTitle = themes
+    .map(t => t.title)
+    .filter(title => title && title.length > 0)
+    .sort((a, b) => b.length - a.length)[0] || themes[0].title
+  
+  // Combine descriptions (take the most detailed one)
+  const bestDescription = themes
+    .map(t => t.description)
+    .filter(desc => desc && desc.length > 10)
+    .sort((a, b) => b.length - a.length)[0] || 'No description available'
+  
+  // Combine all quotes and deduplicate (ONLY use existing quotes from input themes)
+  const allQuotes = new Set()
+  themes.forEach(theme => {
+    if (Array.isArray(theme.quotes)) {
+      theme.quotes.forEach(quote => {
+        // Only add quotes that are actual user review content (length check + content validation)
+        if (quote && typeof quote === 'string' && quote.length > 10 && quote.length < 1000) {
+          // Additional validation: ensure it looks like user-generated content
+          const trimmedQuote = quote.trim()
+          // Avoid adding quotes that look like AI-generated summaries
+          if (!trimmedQuote.startsWith('Users report') && 
+              !trimmedQuote.startsWith('Many users') && 
+              !trimmedQuote.startsWith('Several users') &&
+              !trimmedQuote.includes('analysis shows') &&
+              !trimmedQuote.includes('feedback indicates')) {
+            allQuotes.add(trimmedQuote)
+          }
         }
-      }
+      })
+    }
+  })
+  
+  console.log(`🔍 Merged quotes: found ${allQuotes.size} unique quotes from ${themes.length} themes`)
+  
+  // Combine all suggestions and deduplicate
+  const allSuggestions = new Set()
+  themes.forEach(theme => {
+    if (Array.isArray(theme.suggestions)) {
+      theme.suggestions.forEach(suggestion => {
+        if (suggestion && suggestion.length > 5) {
+          allSuggestions.add(suggestion.trim())
+        }
+      })
+    }
+  })
+  
+  const mergedTheme = {
+    title: bestTitle,
+    description: bestDescription,
+    quotes: Array.from(allQuotes).slice(0, 8), // Increase quote limit for merged themes
+    suggestions: Array.from(allSuggestions).slice(0, 6), // Increase suggestion limit
+    importance_score: themes.reduce((sum, theme) => sum + calculateImportanceScore(theme), 0)
+  }
+  
+  console.log(`🔗 Merged ${themes.length} themes into: "${bestTitle}" (${mergedTheme.quotes.length} quotes, ${mergedTheme.suggestions.length} suggestions)`)
+  return mergedTheme
+}
 
-      // Create suggestions for this theme
-      if (theme.suggestions && theme.suggestions.length > 0) {
-        for (const suggestion of theme.suggestions) {
-          await supabaseClient
+// Helper function to calculate importance score for a theme
+function calculateImportanceScore(theme: any): number {
+  let score = 0
+  
+  // Score based on number of quotes (main indicator of theme importance)
+  score += (theme.quotes?.length || 0) * 3
+  
+  // Score based on number of suggestions
+  score += (theme.suggestions?.length || 0) * 2
+  
+  // Score based on title length (longer titles might be more specific/important)
+  if (theme.title) {
+    score += Math.min(theme.title.length / 10, 5)
+  }
+  
+  // Score based on description quality
+  if (theme.description && theme.description.length > 20) {
+    score += 2
+  }
+  
+  return score
+}
+
+async function logSystemMetric(
+  supabaseClient: any, 
+  metricName: string, 
+  metricValue: number, 
+  metricUnit: string, 
+  tags: any = {}
+) {
+  try {
+    await supabaseClient
+      .from('system_metrics')
+      .insert({
+        metric_type: metricName,
+        metric_value: metricValue,
+        metric_unit: metricUnit,
+        details: tags,
+        created_at: new Date().toISOString()
+      })
+  } catch (error) {
+    console.warn('Failed to log system metric:', error)
+  }
+}
+
+async function saveFinalThemes(reportId: string, themes: any[], supabaseClient: any) {
+  try {
+    console.log(`💾 Saving ${themes.length} final themes for report ${reportId}`)
+
+    if (!themes || themes.length === 0) {
+      console.log('⚠️ No themes to save')
+      return
+    }
+
+    // First, delete existing themes for this report
+    const { error: deleteError } = await supabaseClient
+      .from('themes')
+      .delete()
+      .eq('report_id', reportId)
+
+    if (deleteError) {
+      console.warn('Warning deleting existing themes:', deleteError)
+    }
+
+    // Save to themes table
+    const themeInserts = themes.map((theme: any, index: number) => ({
+      report_id: reportId,
+      title: theme.title || `Theme ${index + 1}`,
+      description: theme.description || 'No description available',
+      created_at: new Date().toISOString()
+    }))
+
+    const { data: insertedThemes, error: themesError } = await supabaseClient
+      .from('themes')
+      .insert(themeInserts)
+      .select('id, title')
+
+    if (themesError) {
+      console.error('Error saving themes:', themesError)
+      throw new Error(`Failed to save themes: ${themesError.message}`)
+    }
+
+    console.log(`✅ Saved ${themeInserts.length} themes`)
+
+    // Save quotes and suggestions for each theme
+    if (insertedThemes && insertedThemes.length > 0) {
+      for (let i = 0; i < insertedThemes.length && i < themes.length; i++) {
+        const themeId = insertedThemes[i].id
+        const themeData = themes[i]
+
+        // Save quotes
+        if (themeData.quotes && themeData.quotes.length > 0) {
+          const quoteInserts = themeData.quotes.map((quote: string) => ({
+            theme_id: themeId,
+            text: quote,
+            source: 'user_review',
+            review_date: new Date().toISOString().split('T')[0],
+            created_at: new Date().toISOString()
+          }))
+
+          const { error: quotesError } = await supabaseClient
+            .from('quotes')
+            .insert(quoteInserts)
+
+          if (quotesError) {
+            console.warn(`Warning saving quotes for theme ${themeId}:`, quotesError)
+          }
+        }
+
+        // Save suggestions
+        if (themeData.suggestions && themeData.suggestions.length > 0) {
+          const suggestionInserts = themeData.suggestions.map((suggestion: string) => ({
+            theme_id: themeId,
+            text: suggestion,
+            created_at: new Date().toISOString()
+          }))
+
+          const { error: suggestionsError } = await supabaseClient
             .from('suggestions')
-            .insert({
-              theme_id: themeData.id,
-              text: suggestion
-            })
+            .insert(suggestionInserts)
+
+          if (suggestionsError) {
+            console.warn(`Warning saving suggestions for theme ${themeId}:`, suggestionsError)
+          }
         }
       }
     }
 
-    console.log(`✅ Successfully saved all ${themes.length} themes to database`)
+    console.log(`✅ Completed saving themes, quotes, and suggestions for report ${reportId}`)
 
   } catch (error) {
-    console.error('❌ Error saving final themes:', error)
+    console.error('Error saving final themes:', error)
     throw error
   }
 }
