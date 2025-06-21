@@ -104,23 +104,83 @@ async function completeReportAnalysis(reportId: string, supabaseClient: any) {
 
     console.log(`📊 Found ${completedTasks.length} completed themes analysis tasks`)
 
-    // Aggregate themes data from all batches
-    const allThemes = []
+    // 按平台分组收集themes
+    const platformThemes = {
+      reddit_themes: [],
+      app_store_themes: [],
+      google_play_themes: []
+    }
+
+    // 从所有batch收集平台特定的themes
     for (const task of completedTasks) {
-      if (task.themes_data && task.themes_data.themes) {
-        allThemes.push(...task.themes_data.themes)
+      if (task.themes_data) {
+        // 新格式：平台分开的themes
+        if (task.themes_data.reddit_themes) {
+          platformThemes.reddit_themes.push(...task.themes_data.reddit_themes)
+        }
+        if (task.themes_data.app_store_themes) {
+          platformThemes.app_store_themes.push(...task.themes_data.app_store_themes)
+        }
+        if (task.themes_data.google_play_themes) {
+          platformThemes.google_play_themes.push(...task.themes_data.google_play_themes)
+        }
+        
+        // 兼容旧格式：合并的themes（如果存在的话）
+        if (task.themes_data.themes && Array.isArray(task.themes_data.themes)) {
+          // 尝试根据platform字段分组旧格式的themes
+          for (const theme of task.themes_data.themes) {
+            if (theme.platform === 'reddit' || theme.source_platform === 'reddit') {
+              platformThemes.reddit_themes.push(theme)
+            } else if (theme.platform === 'app_store' || theme.source_platform === 'app_store') {
+              platformThemes.app_store_themes.push(theme)
+            } else if (theme.platform === 'google_play' || theme.source_platform === 'google_play') {
+              platformThemes.google_play_themes.push(theme)
+            } else {
+              // 如果没有平台信息，跳过或分配到一个默认平台
+              console.warn(`Theme without platform information: ${theme.title}`)
+            }
+          }
+        }
       }
     }
 
-    console.log(`📋 Aggregated ${allThemes.length} themes from all batches`)
+    console.log(`📋 Aggregated themes by platform:`)
+    console.log(`  - Reddit: ${platformThemes.reddit_themes.length} themes`)
+    console.log(`  - App Store: ${platformThemes.app_store_themes.length} themes`)
+    console.log(`  - Google Play: ${platformThemes.google_play_themes.length} themes`)
 
-    // Process and merge themes
-    const finalThemes = await processThemes(report.app_name, allThemes)
+    // 分别处理每个平台的themes
+    const finalPlatformThemes = {
+      reddit_themes: [],
+      app_store_themes: [],
+      google_play_themes: []
+    }
 
-    console.log(`🎯 Final results: ${finalThemes.length} themes after processing`)
+    // 处理Reddit themes
+    if (platformThemes.reddit_themes.length > 0) {
+      console.log(`🔴 Processing ${platformThemes.reddit_themes.length} Reddit themes`)
+      finalPlatformThemes.reddit_themes = await processThemes(report.app_name, platformThemes.reddit_themes, 'reddit')
+    }
 
-    // Save final themes to database
-    await saveFinalThemes(reportId, finalThemes, supabaseClient)
+    // 处理App Store themes  
+    if (platformThemes.app_store_themes.length > 0) {
+      console.log(`🍎 Processing ${platformThemes.app_store_themes.length} App Store themes`)
+      finalPlatformThemes.app_store_themes = await processThemes(report.app_name, platformThemes.app_store_themes, 'app_store')
+    }
+
+    // 处理Google Play themes
+    if (platformThemes.google_play_themes.length > 0) {
+      console.log(`🤖 Processing ${platformThemes.google_play_themes.length} Google Play themes`)
+      finalPlatformThemes.google_play_themes = await processThemes(report.app_name, platformThemes.google_play_themes, 'google_play')
+    }
+
+    console.log(`🎯 Final platform themes:`)
+    console.log(`  - Reddit: ${finalPlatformThemes.reddit_themes.length} themes`)
+    console.log(`  - App Store: ${finalPlatformThemes.app_store_themes.length} themes`)
+    console.log(`  - Google Play: ${finalPlatformThemes.google_play_themes.length} themes`)
+
+    // 分别保存每个平台的themes到数据库
+    await savePlatformThemes(reportId, finalPlatformThemes, supabaseClient)
 
     // Mark report as completed
     await supabaseClient
@@ -132,12 +192,20 @@ async function completeReportAnalysis(reportId: string, supabaseClient: any) {
       .eq('id', reportId)
 
     const totalTime = Date.now() - startTime
+    const totalThemes = finalPlatformThemes.reddit_themes.length + 
+                       finalPlatformThemes.app_store_themes.length + 
+                       finalPlatformThemes.google_play_themes.length
+    
     console.log(`✅ Report analysis completed in ${Math.round(totalTime / 1000)} seconds`)
+    console.log(`📊 Total themes across all platforms: ${totalThemes}`)
 
     // Log completion metric
     await logSystemMetric(supabaseClient, 'report_completion_time', totalTime / 1000, 'seconds', {
       report_id: reportId,
-      themes_count: finalThemes.length,
+      total_themes: totalThemes,
+      reddit_themes: finalPlatformThemes.reddit_themes.length,
+      app_store_themes: finalPlatformThemes.app_store_themes.length,
+      google_play_themes: finalPlatformThemes.google_play_themes.length,
       status: 'success'
     })
 
@@ -164,8 +232,9 @@ async function completeReportAnalysis(reportId: string, supabaseClient: any) {
   }
 }
 
-async function processThemes(appName: string, allThemes: any[]) {
-  console.log(`🔄 Processing ${allThemes.length} themes for ${appName}`)
+async function processThemes(appName: string, allThemes: any[], platform?: string) {
+  const platformName = platform ? ` on platform ${platform}` : ''
+  console.log(`🔄 Processing ${allThemes.length} themes for ${appName}${platformName}`)
 
   if (allThemes.length === 0) {
     return [{
@@ -353,7 +422,7 @@ async function intelligentMergeWithDeepSeek(appName: string, allThemes: any[]) {
       }
     })
 
-    const prompt = `Merge and deduplicate these themes for "${appName}". Return between 10-50 final themes based on what makes most sense for the data quality and diversity.
+    const prompt = `Merge and deduplicate these themes for "${appName}". Return between 30-50 final themes based on what makes most sense for the data quality and diversity.
 
 Input themes (${limitedThemes.length}):
 ${JSON.stringify(limitedThemes, null, 2)}
@@ -365,7 +434,7 @@ CRITICAL INSTRUCTIONS:
 4. Ensure each final theme is distinct and meaningful
 5. ONLY use quotes that exist in the input themes - DO NOT generate new quotes
 6. When merging themes, combine the existing quotes from the input themes
-7. Return 10-50 themes based on data quality - use your judgment to determine the optimal number
+7. Return 30-50 themes based on data quality - use your judgment to determine the optimal number
 
 QUOTE HANDLING RULES:
 - NEVER create, modify, or paraphrase quotes
@@ -690,11 +759,15 @@ async function logSystemMetric(
   }
 }
 
-async function saveFinalThemes(reportId: string, themes: any[], supabaseClient: any) {
+async function savePlatformThemes(reportId: string, platformThemes: any, supabaseClient: any) {
   try {
-    console.log(`💾 Saving ${themes.length} final themes for report ${reportId}`)
+    const totalThemes = (platformThemes.reddit_themes?.length || 0) + 
+                       (platformThemes.app_store_themes?.length || 0) + 
+                       (platformThemes.google_play_themes?.length || 0)
+                       
+    console.log(`💾 Saving ${totalThemes} themes across all platforms for report ${reportId}`)
 
-    if (!themes || themes.length === 0) {
+    if (totalThemes === 0) {
       console.log('⚠️ No themes to save')
       return
     }
@@ -709,18 +782,62 @@ async function saveFinalThemes(reportId: string, themes: any[], supabaseClient: 
       console.warn('Warning deleting existing themes:', deleteError)
     }
 
-    // Save to themes table
-    const themeInserts = themes.map((theme: any, index: number) => ({
-      report_id: reportId,
-      title: theme.title || `Theme ${index + 1}`,
-      description: theme.description || 'No description available',
-      created_at: new Date().toISOString()
-    }))
+    // Prepare theme inserts with platform information
+    const themeInserts = []
+    let index = 0
 
+    // Add Reddit themes
+    if (platformThemes.reddit_themes && platformThemes.reddit_themes.length > 0) {
+      for (const theme of platformThemes.reddit_themes) {
+        themeInserts.push({
+          report_id: reportId,
+          title: theme.title || `Reddit Theme ${index + 1}`,
+          description: theme.description || 'No description available',
+          platform: 'reddit',
+          created_at: new Date().toISOString()
+        })
+        index++
+      }
+    }
+
+    // Add App Store themes
+    if (platformThemes.app_store_themes && platformThemes.app_store_themes.length > 0) {
+      for (const theme of platformThemes.app_store_themes) {
+        themeInserts.push({
+          report_id: reportId,
+          title: theme.title || `App Store Theme ${index + 1}`,
+          description: theme.description || 'No description available',
+          platform: 'app_store',
+          created_at: new Date().toISOString()
+        })
+        index++
+      }
+    }
+
+    // Add Google Play themes
+    if (platformThemes.google_play_themes && platformThemes.google_play_themes.length > 0) {
+      for (const theme of platformThemes.google_play_themes) {
+        themeInserts.push({
+          report_id: reportId,
+          title: theme.title || `Google Play Theme ${index + 1}`,
+          description: theme.description || 'No description available',
+          platform: 'google_play',
+          created_at: new Date().toISOString()
+        })
+        index++
+      }
+    }
+
+    if (themeInserts.length === 0) {
+      console.log('⚠️ No theme inserts prepared')
+      return
+    }
+
+    // Save to themes table
     const { data: insertedThemes, error: themesError } = await supabaseClient
       .from('themes')
       .insert(themeInserts)
-      .select('id, title')
+      .select('id, title, platform')
 
     if (themesError) {
       console.error('Error saving themes:', themesError)
@@ -728,55 +845,107 @@ async function saveFinalThemes(reportId: string, themes: any[], supabaseClient: 
     }
 
     console.log(`✅ Saved ${themeInserts.length} themes`)
+    console.log(`  - Reddit: ${platformThemes.reddit_themes?.length || 0} themes`)
+    console.log(`  - App Store: ${platformThemes.app_store_themes?.length || 0} themes`)
+    console.log(`  - Google Play: ${platformThemes.google_play_themes?.length || 0} themes`)
 
-    // Save quotes and suggestions for each theme
-    if (insertedThemes && insertedThemes.length > 0) {
-      for (let i = 0; i < insertedThemes.length && i < themes.length; i++) {
-        const themeId = insertedThemes[i].id
-        const themeData = themes[i]
+    // Save quotes and suggestions for each platform
+    await savePlatformQuotesAndSuggestions(insertedThemes, platformThemes, supabaseClient)
 
-        // Save quotes
-        if (themeData.quotes && themeData.quotes.length > 0) {
-          const quoteInserts = themeData.quotes.map((quote: string) => ({
-            theme_id: themeId,
-            text: quote,
-            source: 'user_review',
-            review_date: new Date().toISOString().split('T')[0],
-            created_at: new Date().toISOString()
-          }))
+  } catch (error) {
+    console.error('Error in savePlatformThemes:', error)
+    throw error
+  }
+}
 
-          const { error: quotesError } = await supabaseClient
-            .from('quotes')
-            .insert(quoteInserts)
+async function savePlatformQuotesAndSuggestions(insertedThemes: any[], platformThemes: any, supabaseClient: any) {
+  try {
+    const quoteInserts = []
+    const suggestionInserts = []
 
-          if (quotesError) {
-            console.warn(`Warning saving quotes for theme ${themeId}:`, quotesError)
+    // Map themes by title and platform for lookup
+    const themeMap = new Map()
+    for (const theme of insertedThemes) {
+      const key = `${theme.title}_${theme.platform}`
+      themeMap.set(key, theme.id)
+    }
+
+    // Process each platform
+    const platforms = [
+      { key: 'reddit_themes', platform: 'reddit' },
+      { key: 'app_store_themes', platform: 'app_store' },
+      { key: 'google_play_themes', platform: 'google_play' }
+    ]
+
+    for (const { key, platform } of platforms) {
+      const themes = platformThemes[key] || []
+      
+      for (const theme of themes) {
+        const themeKey = `${theme.title}_${platform}`
+        const themeId = themeMap.get(themeKey)
+        
+        if (!themeId) {
+          console.warn(`Could not find theme ID for ${themeKey}`)
+          continue
+        }
+
+        // Add quotes
+        if (Array.isArray(theme.quotes)) {
+          for (const quote of theme.quotes) {
+            if (quote && typeof quote === 'string' && quote.trim().length > 0) {
+              quoteInserts.push({
+                theme_id: themeId,
+                text: quote.trim(),
+                source: platform,
+                review_date: new Date().toISOString().split('T')[0], // Today's date as fallback
+                created_at: new Date().toISOString()
+              })
+            }
           }
         }
 
-        // Save suggestions
-        if (themeData.suggestions && themeData.suggestions.length > 0) {
-          const suggestionInserts = themeData.suggestions.map((suggestion: string) => ({
-            theme_id: themeId,
-            text: suggestion,
-            created_at: new Date().toISOString()
-          }))
-
-          const { error: suggestionsError } = await supabaseClient
-            .from('suggestions')
-            .insert(suggestionInserts)
-
-          if (suggestionsError) {
-            console.warn(`Warning saving suggestions for theme ${themeId}:`, suggestionsError)
+        // Add suggestions
+        if (Array.isArray(theme.suggestions)) {
+          for (const suggestion of theme.suggestions) {
+            if (suggestion && typeof suggestion === 'string' && suggestion.trim().length > 0) {
+              suggestionInserts.push({
+                theme_id: themeId,
+                text: suggestion.trim(),
+                created_at: new Date().toISOString()
+              })
+            }
           }
         }
       }
     }
 
-    console.log(`✅ Completed saving themes, quotes, and suggestions for report ${reportId}`)
+    // Batch insert quotes
+    if (quoteInserts.length > 0) {
+      const { error: quotesError } = await supabaseClient
+        .from('quotes')
+        .insert(quoteInserts)
+
+      if (quotesError) {
+        console.error('Error saving quotes:', quotesError)
+      } else {
+        console.log(`✅ Saved ${quoteInserts.length} quotes`)
+      }
+    }
+
+    // Batch insert suggestions
+    if (suggestionInserts.length > 0) {
+      const { error: suggestionsError } = await supabaseClient
+        .from('suggestions')
+        .insert(suggestionInserts)
+
+      if (suggestionsError) {
+        console.error('Error saving suggestions:', suggestionsError)
+      } else {
+        console.log(`✅ Saved ${suggestionInserts.length} suggestions`)
+      }
+    }
 
   } catch (error) {
-    console.error('Error saving final themes:', error)
-    throw error
+    console.error('Error saving quotes and suggestions:', error)
   }
 }

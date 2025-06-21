@@ -28,6 +28,7 @@ export const ReportPage: React.FC = () => {
   const { currentReport, loading, fetchReport } = useReportStore()
   const themeRefs = useRef<(HTMLDivElement | null)[]>([])
   const [activeTab, setActiveTab] = useState<'report' | 'monitoring'>('report')
+  const [activePlatform, setActivePlatform] = useState<'all' | 'reddit' | 'app_store' | 'google_play'>('all')
   const [processingProgress, setProcessingProgress] = useState<ProcessingProgress | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
@@ -124,6 +125,72 @@ export const ReportPage: React.FC = () => {
     // Implement share functionality
     navigator.clipboard.writeText(window.location.href)
     // Show toast notification
+  }
+
+  // 获取当前显示的themes
+  const getCurrentThemes = () => {
+    if (!currentReport?.platformThemes) {
+      return currentReport?.themes || []
+    }
+
+    switch (activePlatform) {
+      case 'reddit':
+        return currentReport.platformThemes.reddit
+      case 'app_store':
+        return currentReport.platformThemes.app_store
+      case 'google_play':
+        return currentReport.platformThemes.google_play
+      case 'all':
+      default:
+        return currentReport?.themes || []
+    }
+  }
+
+  // 获取平台统计信息
+  const getPlatformStats = () => {
+    if (!currentReport?.platformThemes) {
+      return {
+        reddit: 0,
+        app_store: 0,
+        google_play: 0,
+        total: currentReport?.themes?.length || 0
+      }
+    }
+
+    const stats = {
+      reddit: currentReport.platformThemes.reddit.length,
+      app_store: currentReport.platformThemes.app_store.length,
+      google_play: currentReport.platformThemes.google_play.length,
+      total: 0
+    }
+    
+    stats.total = stats.reddit + stats.app_store + stats.google_play
+    return stats
+  }
+
+  const currentThemes = getCurrentThemes()
+  const platformStats = getPlatformStats()
+
+  // 获取平台名称显示
+  const getPlatformName = (platform: string) => {
+    switch (platform) {
+      case 'reddit': return 'Reddit'
+      case 'app_store': return 'App Store'
+      case 'google_play': return 'Google Play'
+      case 'all': return 'All Platforms'
+      default: return platform
+    }
+  }
+
+  // 获取平台颜色
+  const getPlatformColor = (platform: string) => {
+    switch (platform) {
+      case 'reddit': return 'text-orange-400'
+      case 'app_store': return 'text-blue-400'
+      case 'google_play': return 'text-green-400'
+      case 'all': return 'text-[#2DD4BF]'
+      default: return 'text-white'
+    }
   }
 
   if (loading) {
@@ -281,7 +348,76 @@ export const ReportPage: React.FC = () => {
               </p>
             </motion.div>
 
-            {currentReport.themes?.map((theme, index) => (
+            {/* Platform Selection */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white">Platform Analysis</h3>
+                <div className="text-sm text-white/60">
+                  Total: {platformStats.total} themes
+                </div>
+              </div>
+              
+              {/* Platform Tabs */}
+              <div className="flex flex-wrap gap-2 mb-4">
+                {[
+                  { key: 'all', label: 'All Platforms', count: platformStats.total },
+                  { key: 'reddit', label: 'Reddit', count: platformStats.reddit },
+                  { key: 'app_store', label: 'App Store', count: platformStats.app_store },
+                  { key: 'google_play', label: 'Google Play', count: platformStats.google_play }
+                ].map(({ key, label, count }) => (
+                  <button
+                    key={key}
+                    onClick={() => setActivePlatform(key as any)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                      activePlatform === key
+                        ? 'bg-[#2DD4BF] text-black'
+                        : 'bg-white/10 text-white/70 hover:bg-white/20 hover:text-white'
+                    }`}
+                  >
+                    {label} ({count})
+                  </button>
+                ))}
+              </div>
+
+              {/* Platform Statistics */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="text-center p-3 bg-white/5 rounded-lg">
+                  <div className="text-2xl font-bold text-orange-400">{platformStats.reddit}</div>
+                  <div className="text-xs text-white/60">Reddit Themes</div>
+                </div>
+                <div className="text-center p-3 bg-white/5 rounded-lg">
+                  <div className="text-2xl font-bold text-blue-400">{platformStats.app_store}</div>
+                  <div className="text-xs text-white/60">App Store Themes</div>
+                </div>
+                <div className="text-center p-3 bg-white/5 rounded-lg">
+                  <div className="text-2xl font-bold text-green-400">{platformStats.google_play}</div>
+                  <div className="text-xs text-white/60">Google Play Themes</div>
+                </div>
+                <div className="text-center p-3 bg-white/5 rounded-lg">
+                  <div className="text-2xl font-bold text-[#2DD4BF]">{platformStats.total}</div>
+                  <div className="text-xs text-white/60">Total Themes</div>
+                </div>
+              </div>
+
+              {/* Current Platform Display */}
+              {activePlatform !== 'all' && (
+                <div className="mt-4 p-3 bg-white/5 rounded-lg">
+                  <div className="flex items-center">
+                    <div className={`w-3 h-3 rounded-full mr-2 ${getPlatformColor(activePlatform).replace('text-', 'bg-')}`}></div>
+                    <span className="text-white font-medium">
+                      Showing {getPlatformName(activePlatform)} themes ({currentThemes.length})
+                    </span>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+
+            {currentThemes.map((theme, index) => (
               <div
                 key={theme.id}
                 ref={(el) => (themeRefs.current[index] = el)}
@@ -298,8 +434,8 @@ export const ReportPage: React.FC = () => {
 
             {/* Sidebar */}
             <div className="lg:col-span-1">
-              {currentReport.themes && currentReport.themes.length > 0 && (
-                <SidebarNav themes={currentReport.themes} onThemeClick={scrollToTheme} />
+              {currentThemes && currentThemes.length > 0 && (
+                <SidebarNav themes={currentThemes} onThemeClick={scrollToTheme} />
               )}
             </div>
           </div>

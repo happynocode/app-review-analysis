@@ -12,6 +12,22 @@ interface ThemeCardProps {
 export const ThemeCard: React.FC<ThemeCardProps> = ({ theme, index }) => {
   const [isExpanded, setIsExpanded] = useState(false)
 
+  // 获取平台显示信息
+  const getPlatformInfo = (platform: string) => {
+    switch (platform) {
+      case 'reddit':
+        return { name: 'Reddit', color: 'bg-orange-500', textColor: 'text-orange-100' }
+      case 'app_store':
+        return { name: 'App Store', color: 'bg-blue-500', textColor: 'text-blue-100' }
+      case 'google_play':
+        return { name: 'Google Play', color: 'bg-green-500', textColor: 'text-green-100' }
+      default:
+        return { name: 'Unknown', color: 'bg-gray-500', textColor: 'text-gray-100' }
+    }
+  }
+
+  const platformInfo = theme.platform ? getPlatformInfo(theme.platform) : null
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -24,9 +40,16 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({ theme, index }) => {
           className="flex items-start justify-between"
         >
           <div className="flex-1">
-            <h3 className="text-xl font-semibold text-white mb-2">
-              {theme.title}
-            </h3>
+            <div className="flex items-center mb-2">
+              <h3 className="text-xl font-semibold text-white mr-3">
+                {theme.title}
+              </h3>
+              {platformInfo && (
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${platformInfo.color} ${platformInfo.textColor}`}>
+                  {platformInfo.name}
+                </span>
+              )}
+            </div>
             <p className="text-white/70 leading-relaxed">
               {theme.description}
             </p>

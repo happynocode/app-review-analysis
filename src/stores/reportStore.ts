@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getUserReports, getReport, createReport } from '../lib/database'
+import { supabase } from '../lib/supabase'
 
 export interface Quote {
   id: string
@@ -17,8 +18,15 @@ export interface Theme {
   id: string
   title: string
   description: string
+  platform: 'reddit' | 'app_store' | 'google_play'
   quotes: Quote[]
   suggestions: Suggestion[]
+}
+
+export interface PlatformThemes {
+  reddit: Theme[]
+  app_store: Theme[]
+  google_play: Theme[]
 }
 
 export interface Report {
@@ -29,12 +37,14 @@ export interface Report {
   created_at: string
   completed_at: string | null
   themes?: Theme[]
+  platformThemes?: PlatformThemes
 }
 
 interface ReportState {
   currentReport: Report | null
   reports: Report[]
   loading: boolean
+  error: string | null
   setCurrentReport: (report: Report | null) => void
   setReports: (reports: Report[]) => void
   setLoading: (loading: boolean) => void
@@ -49,6 +59,7 @@ export const useReportStore = create<ReportState>((set, get) => ({
   currentReport: null,
   reports: [],
   loading: false,
+  error: null,
 
   setCurrentReport: (report) => set({ currentReport: report }),
   setReports: (reports) => set({ reports }),
@@ -79,13 +90,80 @@ export const useReportStore = create<ReportState>((set, get) => ({
   },
 
   fetchReport: async (reportId: string) => {
-    set({ loading: true })
+    set({ loading: true, error: null })
+    
     try {
-      const report = await getReport(reportId)
-      set({ currentReport: report, loading: false })
-    } catch (error) {
-      console.error('Error fetching report:', error)
-      set({ loading: false })
+      // Fetch report data
+      const { data: report, error: reportError } = await supabase
+        .from('reports')
+        .select('*')
+        .eq('id', reportId)
+        .single()
+
+      if (reportError) throw reportError
+
+      // Fetch themes with platform information
+      const { data: themes, error: themesError } = await supabase
+        .from('themes')
+        .select(`
+          id,
+          title,
+          description,
+          platform,
+          quotes (
+            id,
+            text,
+            source,
+            review_date
+          ),
+          suggestions (
+            id,
+            text
+          )
+        `)
+        .eq('report_id', reportId)
+        .order('created_at', { ascending: true })
+
+      if (themesError) throw themesError
+
+      // Group themes by platform
+      const platformThemes: PlatformThemes = {
+        reddit: [],
+        app_store: [],
+        google_play: []
+      }
+
+      if (themes) {
+        for (const theme of themes) {
+          const themeWithDetails = {
+            ...theme,
+            quotes: theme.quotes || [],
+            suggestions: theme.suggestions || []
+          }
+
+          if (theme.platform === 'reddit') {
+            platformThemes.reddit.push(themeWithDetails)
+          } else if (theme.platform === 'app_store') {
+            platformThemes.app_store.push(themeWithDetails)
+          } else if (theme.platform === 'google_play') {
+            platformThemes.google_play.push(themeWithDetails)
+          }
+        }
+      }
+
+      // For backward compatibility, also set the themes array
+      const allThemes = [...platformThemes.reddit, ...platformThemes.app_store, ...platformThemes.google_play]
+
+      set({ 
+        currentReport: {
+          ...report,
+          themes: allThemes,
+          platformThemes
+        },
+        loading: false 
+      })
+    } catch (error: any) {
+      set({ error: error.message, loading: false })
     }
   },
 

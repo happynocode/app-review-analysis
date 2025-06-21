@@ -226,19 +226,94 @@ async function analyzeThemesWithDeepSeek(appName: string, reviews: any[], batchI
     throw new Error('DEEPSEEK_API_KEY environment variable is not set')
   }
 
-  // Extract review text from review objects
-  const reviewTexts = reviews
-    .map(review => typeof review === 'string' ? review : review.review_text)
-    .filter(text => text && text.trim().length > 10)
-    .map(text => text.length > 400 ? text.substring(0, 400) + '...' : text)
-    .slice(0, 50) // Smaller batches for better performance
-
-  if (reviewTexts.length === 0) {
-    return { themes: [], message: 'No valid reviews to analyze' }
+  // 按平台分组评论
+  const platformGroups = {
+    reddit: reviews.filter(r => r.platform === 'reddit'),
+    app_store: reviews.filter(r => r.platform === 'app_store'),
+    google_play: reviews.filter(r => r.platform === 'google_play')
   }
 
-  // 改进的themes分析prompt
-  const prompt = `You are an expert product analyst specializing in user feedback analysis. Your task is to identify the most important themes from user reviews for "${appName}".
+  console.log(`🔍 Batch ${batchIndex} platform distribution: Reddit ${platformGroups.reddit.length}, App Store ${platformGroups.app_store.length}, Google Play ${platformGroups.google_play.length}`)
+
+  const platformThemes = {
+    reddit_themes: [],
+    app_store_themes: [],
+    google_play_themes: []
+  }
+
+  // 分别分析每个平台的themes
+  for (const [platform, platformReviews] of Object.entries(platformGroups)) {
+    if (platformReviews.length === 0) {
+      console.log(`⏭️ Skipping ${platform} - no reviews`)
+      continue
+    }
+
+    console.log(`🧠 Analyzing ${platform} themes (${platformReviews.length} reviews)...`)
+    
+    // Extract review text from review objects
+    const reviewTexts = platformReviews
+      .map(review => typeof review === 'string' ? review : review.review_text)
+      .filter(text => text && text.trim().length > 10)
+      .map(text => text.length > 400 ? text.substring(0, 400) + '...' : text)
+      .slice(0, 50) // Smaller batches for better performance
+
+    if (reviewTexts.length === 0) {
+      console.log(`⏭️ Skipping ${platform} - no valid review texts`)
+      continue
+    }
+
+    // 针对不同平台定制化的prompt
+    const platformSpecificPrompt = getPlatformSpecificPrompt(platform, appName, reviewTexts)
+
+    try {
+      const themes = await callDeepSeekAPI(platformSpecificPrompt)
+      
+      // 为每个theme添加平台标识
+      const themesWithPlatform = themes.themes.map(theme => ({
+        ...theme,
+        platform: platform,
+        source_platform: platform
+      }))
+      
+      if (platform === 'reddit') {
+        platformThemes.reddit_themes = themesWithPlatform
+      } else if (platform === 'app_store') {
+        platformThemes.app_store_themes = themesWithPlatform
+      } else if (platform === 'google_play') {
+        platformThemes.google_play_themes = themesWithPlatform
+      }
+
+      console.log(`✅ ${platform} analysis complete: ${themesWithPlatform.length} themes found`)
+      
+    } catch (error) {
+      console.error(`❌ Error analyzing ${platform} themes:`, error)
+      // 继续处理其他平台
+    }
+  }
+
+  console.log(`📊 Batch ${batchIndex} themes analysis complete: Reddit ${platformThemes.reddit_themes.length}, App Store ${platformThemes.app_store_themes.length}, Google Play ${platformThemes.google_play_themes.length}`)
+
+  return platformThemes
+}
+
+// 获取平台特定的prompt
+function getPlatformSpecificPrompt(platform: string, appName: string, reviewTexts: string[]): string {
+  const platformNames = {
+    reddit: 'Reddit',
+    app_store: 'App Store',
+    google_play: 'Google Play'
+  }
+
+  const platformContext = {
+    reddit: 'Reddit discussions and community feedback',
+    app_store: 'iOS App Store user reviews',
+    google_play: 'Google Play Store user reviews'
+  }
+
+  const prompt = `You are an expert product analyst specializing in user feedback analysis. Your task is to identify the most important themes from ${platformContext[platform]} for "${appName}".
+
+PLATFORM-SPECIFIC CONTEXT: 
+This analysis focuses specifically on ${platformNames[platform]} feedback, which may have different characteristics and user perspectives compared to other platforms.
 
 ANALYSIS GUIDELINES:
 1. Focus on themes that appear across multiple reviews (not isolated complaints)
@@ -246,6 +321,7 @@ ANALYSIS GUIDELINES:
 3. Group similar feedback into coherent themes
 4. Extract meaningful quotes that represent each theme
 5. Provide specific, actionable suggestions for each theme
+6. Consider the ${platformNames[platform]} user context and behavior patterns
 
 QUALITY STANDARDS:
 - Each theme should represent feedback from multiple users
@@ -254,7 +330,7 @@ QUALITY STANDARDS:
 - Quotes should be representative and authentic user voices
 - Suggestions should be actionable and specific to the theme
 
-USER REVIEWS (${reviewTexts.length} reviews for ${appName}):
+${platformNames[platform].toUpperCase()} REVIEWS (${reviewTexts.length} reviews for ${appName}):
 ${reviewTexts.map((text, i) => `Review ${i + 1}: ${text}`).join('\n\n')}
 
 REQUIRED OUTPUT FORMAT (return ONLY valid JSON, no markdown):
@@ -276,11 +352,19 @@ REQUIRED OUTPUT FORMAT (return ONLY valid JSON, no markdown):
 }
 
 IMPORTANT: 
-- Return 10-50 themes based on the data quality and diversity (focus on extracting meaningful patterns)
+- Return 20-50 themes based on the data quality and diversity (focus on extracting meaningful patterns)
 - Ensure each theme has 2-3 representative quotes from the actual reviews
 - Make suggestions specific and actionable, not generic advice
-- Return only the JSON object, no additional text or markdown formatting`
+- Return only the JSON object, no additional text or markdown formatting
+- Consider this is ${platformNames[platform]} specific feedback when creating themes`
 
+  return prompt
+}
+
+// 调用DeepSeek API的通用函数
+async function callDeepSeekAPI(prompt: string) {
+  const deepseekApiKey = Deno.env.get('DEEPSEEK_API_KEY')
+  
   // API call with timeout
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout
@@ -305,7 +389,7 @@ IMPORTANT:
           }
         ],
         stream: false,
-        max_tokens: 4000,
+        max_tokens: 6000, // 增加max_tokens以支持更多themes
         temperature: 0.3, // Lower temperature for more consistent JSON output
       }),
       signal: controller.signal
@@ -341,7 +425,6 @@ IMPORTANT:
       
       // Validate the structure
       if (result.themes && Array.isArray(result.themes)) {
-        console.log(`📊 themes analysis complete: ${result.themes.length} themes found`)
         return result
       } else {
         throw new Error('Invalid themes structure in response')
@@ -353,7 +436,6 @@ IMPORTANT:
       // Try to extract structured information from the raw text
       const extractedThemes = extractThemesFromText(content)
       if (extractedThemes.length > 0) {
-        console.log(`📊 Extracted ${extractedThemes.length} themes from text analysis`)
         return { themes: extractedThemes }
       }
       
@@ -427,7 +509,7 @@ function extractThemesFromText(content: string): any[] {
     })
   }
   
-  return themes.slice(0, 10) // Limit to 10 themes
+  return themes.slice(0, 50) // 增加限制到50个themes
 }
 
 async function logSystemMetric(
