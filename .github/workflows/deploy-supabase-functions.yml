@@ -1,0 +1,105 @@
+name: Deploy Supabase Edge Functions
+
+on:
+  push:
+    paths:
+      - 'supabase/functions/**'
+    branches:
+      - main
+  workflow_dispatch: # 允许手动触发
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link Supabase Project
+        run: supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy complete-report-analysis function
+        run: supabase functions deploy complete-report-analysis --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy cron-batch-processor function
+        run: supabase functions deploy cron-batch-processor --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy cron-scraping-monitor function
+        run: supabase functions deploy cron-scraping-monitor --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy delete-all-data function
+        run: supabase functions deploy delete-all-data --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy generate-report function
+        run: supabase functions deploy generate-report --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy process-analysis-batch-v2 function
+        run: supabase functions deploy process-analysis-batch-v2 --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy scrape-app-store function
+        run: supabase functions deploy scrape-app-store --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy scrape-google-play function
+        run: supabase functions deploy scrape-google-play --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy scrape-reddit function
+        run: supabase functions deploy scrape-reddit --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy search-apps function
+        run: supabase functions deploy search-apps --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy start-analysis-v2 function
+        run: supabase functions deploy start-analysis-v2 --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy start-scraping function
+        run: supabase functions deploy start-scraping --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy update-scraper-status function
+        run: supabase functions deploy update-scraper-status --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deployment Status
+        if: success()
+        run: echo "✅ All Supabase Edge Functions deployed successfully!"
+
+      - name: Deployment Failed
+        if: failure()
+        run: echo "❌ Supabase Edge Functions deployment failed!"
