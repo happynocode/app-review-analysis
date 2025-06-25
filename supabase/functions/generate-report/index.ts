@@ -121,36 +121,58 @@ Deno.serve(async (req) => {
     // Update report status to processing (user_search_term, selected_app_name, enabled_platforms already set during INSERT)
     await supabaseClient
       .from('reports')
-      .update({ 
+      .update({
         status: 'processing'
       })
       .eq('id', reportId)
 
-    // 🆕 Create scraping session with platform configuration
-    const { data: scrapingSession, error: sessionError } = await supabaseClient
+    // 🆕 Check if there's already an active scraping session for this report
+    const { data: existingSession, error: checkError } = await supabaseClient
       .from('scraping_sessions')
-      .insert({
-        report_id: reportId,
-        app_name: appName,
-        user_search_term: userSearchTerm,
-        selected_app_name: selectedAppName,
-        status: 'pending',
-        enabled_platforms: finalEnabledPlatforms,
-        analysis_config: finalAnalysisConfig,
-        // 🆕 设置每个scraper的初始状态
-        app_store_scraper_status: finalEnabledPlatforms.includes('app_store') ? 'pending' : 'disabled',
-        google_play_scraper_status: finalEnabledPlatforms.includes('google_play') ? 'pending' : 'disabled',
-        reddit_scraper_status: finalEnabledPlatforms.includes('reddit') ? 'pending' : 'disabled'
-      })
-      .select()
-      .single()
+      .select('*')
+      .eq('report_id', reportId)
+      .in('status', ['pending', 'running'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
-    if (sessionError) {
+    if (checkError) {
       activeReports.delete(reportId)
-      throw new Error(`Failed to create scraping session: ${sessionError.message}`)
+      throw new Error(`Failed to check existing sessions: ${checkError.message}`)
     }
 
-    console.log(`✅ Created scraping session ${scrapingSession.id}`)
+    let scrapingSession
+    if (existingSession) {
+      console.log(`♻️ Found existing active scraping session ${existingSession.id} for report ${reportId}`)
+      scrapingSession = existingSession
+    } else {
+      // 🆕 Create scraping session with platform configuration
+      const { data: newSession, error: sessionError } = await supabaseClient
+        .from('scraping_sessions')
+        .insert({
+          report_id: reportId,
+          app_name: appName,
+          user_search_term: userSearchTerm,
+          selected_app_name: selectedAppName,
+          status: 'pending',
+          enabled_platforms: finalEnabledPlatforms,
+          analysis_config: finalAnalysisConfig,
+          // 🆕 设置每个scraper的初始状态
+          app_store_scraper_status: finalEnabledPlatforms.includes('app_store') ? 'pending' : 'disabled',
+          google_play_scraper_status: finalEnabledPlatforms.includes('google_play') ? 'pending' : 'disabled',
+          reddit_scraper_status: finalEnabledPlatforms.includes('reddit') ? 'pending' : 'disabled'
+        })
+        .select()
+        .single()
+
+      if (sessionError) {
+        activeReports.delete(reportId)
+        throw new Error(`Failed to create scraping session: ${sessionError.message}`)
+      }
+
+      scrapingSession = newSession
+      console.log(`✅ Created new scraping session ${scrapingSession.id}`)
+    }
 
     // 🆕 Start the scraping process with platform configuration
     EdgeRuntime.waitUntil(initiateScrapingProcess(

@@ -191,16 +191,23 @@ async function performScraping(
       
       const scrapedData = await performRedditOnlyScraping(redditSearchName || appName, scrapingSessionId)
       
-      // 更新 Reddit scraper 状态为完成（删除review数量字段）
+      // 更新 Reddit scraper 状态和总体状态为完成
+      const completedAt = new Date().toISOString()
       await supabaseClient
         .from('scraping_sessions')
         .update({
-          reddit_scraper_status: 'completed',
-          reddit_completed_at: new Date().toISOString()
+          status: 'completed',
+          completed_at: completedAt,
+          reddit_scraper_status: scrapedData.totalReviews > 0 ? 'completed' : 'failed',
+          reddit_completed_at: completedAt,
+          // 确保其他平台状态为disabled（如果它们没有被启用）
+          app_store_scraper_status: finalEnabledPlatforms.includes('app_store') ? 'disabled' : 'disabled',
+          google_play_scraper_status: finalEnabledPlatforms.includes('google_play') ? 'disabled' : 'disabled'
         })
         .eq('id', scrapingSessionId)
 
       console.log(`✅ Reddit-only scraping completed: Found ${scrapedData.totalReviews} Reddit posts`)
+      console.log(`🔄 Status monitoring will handle completion detection and analysis triggering`)
       return
     }
 
@@ -226,14 +233,41 @@ async function performScraping(
     console.log(`- Google Play: ${scrapedData.googlePlay.length}`)
     console.log(`- Reddit: ${scrapedData.reddit.length} (searched for: "${redditSearchName || appName}")`)
     
-    // Update scraping session status (删除review数量字段)
+    // Update scraping session status and individual platform statuses
+    const completedAt = new Date().toISOString()
+    const platformUpdates: any = {
+      status: 'completed',
+      completed_at: completedAt
+    }
+
+    // Update individual platform scraper statuses based on results
+    const enabledSet = new Set(enabledPlatforms || ['app_store', 'google_play', 'reddit'])
+
+    if (enabledSet.has('app_store')) {
+      platformUpdates.app_store_scraper_status = scrapedData.appStore.length > 0 ? 'completed' : 'failed'
+      platformUpdates.app_store_completed_at = completedAt
+    }
+
+    if (enabledSet.has('google_play')) {
+      platformUpdates.google_play_scraper_status = scrapedData.googlePlay.length > 0 ? 'completed' : 'failed'
+      platformUpdates.google_play_completed_at = completedAt
+    }
+
+    if (enabledSet.has('reddit')) {
+      platformUpdates.reddit_scraper_status = scrapedData.reddit.length > 0 ? 'completed' : 'failed'
+      platformUpdates.reddit_completed_at = completedAt
+    }
+
     await supabaseClient
       .from('scraping_sessions')
-      .update({
-        status: 'completed',
-        completed_at: new Date().toISOString()
-      })
+      .update(platformUpdates)
       .eq('id', scrapingSessionId)
+
+    console.log(`✅ Updated scraping session with platform statuses:`, {
+      app_store: platformUpdates.app_store_scraper_status,
+      google_play: platformUpdates.google_play_scraper_status,
+      reddit: platformUpdates.reddit_scraper_status
+    })
 
     // 不再直接触发分析，让cron-scraping-monitor来处理状态转换和分析触发
     console.log(`✅ Scraping data collection completed for report ${reportId}`)

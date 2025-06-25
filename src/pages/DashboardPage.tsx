@@ -16,6 +16,7 @@ export const DashboardPage: React.FC = () => {
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deleteLoading, setDeleteLoading] = useState(false)
+  const [retryingReports, setRetryingReports] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (user) {
@@ -92,6 +93,15 @@ export const DashboardPage: React.FC = () => {
   }
 
   const handleRetryReport = async (reportId: string, appName: string) => {
+    // Prevent duplicate retry attempts
+    if (retryingReports.has(reportId)) {
+      console.log(`Report ${reportId} is already being retried`)
+      return
+    }
+
+    // Add to retrying set
+    setRetryingReports(prev => new Set(prev).add(reportId))
+
     try {
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-report`, {
         method: 'POST',
@@ -114,6 +124,13 @@ export const DashboardPage: React.FC = () => {
     } catch (error) {
       console.error('Error retrying report:', error)
       alert('Error retrying report generation, please try again later')
+    } finally {
+      // Remove from retrying set
+      setRetryingReports(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(reportId)
+        return newSet
+      })
     }
   }
 
@@ -404,8 +421,10 @@ export const DashboardPage: React.FC = () => {
                           variant="secondary"
                           size="sm"
                           onClick={() => handleRetryReport(report.id, report.app_name)}
+                          disabled={retryingReports.has(report.id)}
+                          loading={retryingReports.has(report.id)}
                         >
-                          Retry
+                          {retryingReports.has(report.id) ? 'Retrying...' : 'Retry'}
                         </Button>
                         {report.failure_details && (
                           <Button
