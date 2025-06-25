@@ -50,8 +50,8 @@ enabled = true
 site_url = "http://localhost:3000"
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
 additional_redirect_urls = [
-  "https://happynocode.github.io/app-review-analysis",
-  "https://happynocode.github.io/app-review-analysis/",
+  "https://happynocode.github.io/feedbacklens",
+  "https://happynocode.github.io/feedbacklens/",
   "http://localhost:5173",
   "http://localhost:3000"
 ]
