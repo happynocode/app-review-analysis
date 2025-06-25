@@ -61,6 +61,9 @@ Deno.serve(async (req: Request) => {
       try {
         console.log(`📊 检查报告 ${report.id} (${report.app_name})`);
 
+        // 首先检查并恢复卡住的processing任务
+        await recoverStuckTasks(supabase, report.id);
+
         // 查找该报告的待处理任务
         const { data: pendingTasks, error: tasksError } = await supabase
           .from('analysis_tasks')
@@ -242,5 +245,66 @@ async function completeReport(supabaseUrl: string, supabaseKey: string, reportId
   } catch (error) {
     console.error(`❌ 调用complete-report-analysis时出错:`, error);
     return false;
+  }
+}
+
+// 恢复卡住的processing任务
+async function recoverStuckTasks(supabase: any, reportId: string): Promise<void> {
+  try {
+    const STUCK_TIMEOUT_MINUTES = 10; // 10分钟超时阈值
+
+    // 查找长时间处于processing状态的任务
+    const { data: stuckTasks, error: stuckError } = await supabase
+      .from('analysis_tasks')
+      .select('id, batch_index, updated_at')
+      .eq('report_id', reportId)
+      .eq('status', 'processing')
+      .lt('updated_at', new Date(Date.now() - STUCK_TIMEOUT_MINUTES * 60 * 1000).toISOString());
+
+    if (stuckError) {
+      console.error(`❌ 查询卡住任务失败: ${stuckError.message}`);
+      return;
+    }
+
+    if (stuckTasks && stuckTasks.length > 0) {
+      console.log(`🔧 发现 ${stuckTasks.length} 个卡住的任务，正在恢复...`);
+
+      // 将卡住的任务重置为pending状态
+      const { error: resetError } = await supabase
+        .from('analysis_tasks')
+        .update({
+          status: 'pending',
+          updated_at: new Date().toISOString(),
+          error_message: `Recovered from stuck processing state (timeout after ${STUCK_TIMEOUT_MINUTES} minutes)`
+        })
+        .in('id', stuckTasks.map(task => task.id));
+
+      if (resetError) {
+        console.error(`❌ 重置卡住任务失败: ${resetError.message}`);
+      } else {
+        console.log(`✅ 成功恢复 ${stuckTasks.length} 个卡住的任务`);
+
+        // 记录恢复操作到系统指标
+        try {
+          await supabase
+            .from('system_metrics')
+            .insert({
+              metric_type: 'stuck_tasks_recovered',
+              metric_value: stuckTasks.length,
+              metric_unit: 'count',
+              details: {
+                report_id: reportId,
+                recovered_task_ids: stuckTasks.map(t => t.id),
+                timeout_minutes: STUCK_TIMEOUT_MINUTES
+              },
+              created_at: new Date().toISOString()
+            });
+        } catch (metricError) {
+          console.warn('记录恢复指标失败:', metricError);
+        }
+      }
+    }
+  } catch (error) {
+    console.error(`❌ 恢复卡住任务时出错:`, error);
   }
 }
