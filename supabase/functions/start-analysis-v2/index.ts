@@ -513,31 +513,10 @@ Deno.serve(async (req: Request) => {
     console.log(`🔄 启动数据库触发器模式 - 总共 ${totalBatches} 个批次`);
     console.log(`📊 批次分布: Reddit ${redditBatches}批(${redditCount}条), App Store ${appStoreBatches}批(${appStoreCount}条), Google Play ${googlePlayBatches}批(${googlePlayCount}条)`);
 
-    // 6. 只启动第一批处理，后续由数据库触发器自动处理
-    const firstBatchTasks = analysisTasks.slice(0, Math.min(4, analysisTasks.length));
-    
-    if (firstBatchTasks.length > 0) {
-      const startSuccess = await startFirstBatch(reportId, firstBatchTasks, supabaseUrl, supabaseKey);
-      
-      if (!startSuccess) {
-        // 如果第一批启动失败，将报告状态改为failed
-        await supabase
-          .from('reports')
-          .update({
-            status: 'failed',
-            failure_stage: 'analysis',
-            error_message: '启动第一批处理失败',
-            failure_details: {
-              reason: '无法启动分析任务',
-              suggestion: '请检查系统状态或重试'
-            },
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', reportId);
-          
-        throw new Error('启动第一批处理失败');
-      }
-      
+    // 6. 任务创建完成，让cron-batch-processor处理所有批次
+    console.log(`🎯 任务创建完成，cron-batch-processor将自动处理所有 ${totalBatches} 个批次`);
+
+    if (analysisTasks.length > 0) {
       // 🆕 返回成功结果，包含详细的筛选统计信息
       return new Response(JSON.stringify({
         success: true,
@@ -545,7 +524,7 @@ Deno.serve(async (req: Request) => {
         result: {
           reportId,
           totalBatches,
-          startedBatches: firstBatchTasks.length,
+          startedBatches: 0, // 不再手动启动第一批
           estimatedTime: Math.ceil(totalBatches * 2.5), // 估算时间
           status: 'started',
           reviewCount: stats.final.total,
@@ -558,7 +537,8 @@ Deno.serve(async (req: Request) => {
             original: stats.original,
             final: stats.final,
             efficiency: Math.round((stats.final.total / stats.original.total) * 100)
-          }
+          },
+          processingNote: 'cron-batch-processor将在1分钟内开始处理任务'
         }
       }), {
         headers: { 'Content-Type': 'application/json' }
@@ -573,7 +553,7 @@ Deno.serve(async (req: Request) => {
           updated_at: new Date().toISOString()
         })
         .eq('id', reportId);
-        
+
       return new Response(JSON.stringify({
         success: true,
         message: '没有需要处理的分析任务',
@@ -603,41 +583,7 @@ Deno.serve(async (req: Request) => {
   }
 });
 
-async function startFirstBatch(
-  reportId: string, 
-  tasks: any[], 
-  supabaseUrl: string, 
-  supabaseKey: string
-): Promise<boolean> {
-  try {
-    console.log(`🚀 启动第一批处理，包含 ${tasks.length} 个任务`);
 
-    const response = await fetch(`${supabaseUrl}/functions/v1/process-analysis-batch-v2`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${supabaseKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        reportId,
-        tasks,
-        enableChainProcessing: false // 不再使用链式处理
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`第一批启动失败:`, errorText);
-      return false;
-    }
-
-    console.log(`✅ 第一批启动成功`);
-    return true;
-  } catch (error) {
-    console.error(`第一批启动异常:`, error);
-    return false;
-  }
-}
 
 async function createAnalysisTasks(
   reportId: string, 
