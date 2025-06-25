@@ -30,10 +30,10 @@ Deno.serve(async (req: Request) => {
       errors: []
     };
 
-    // 1. 查找正在分析的报告
+    // 1. 查找正在分析的报告（排除正在完成的报告）
     const { data: analyzingReports, error: reportsError } = await supabase
       .from('reports')
-      .select('id, app_name, created_at')
+      .select('id, app_name, created_at, status')
       .eq('status', 'analyzing')
       .order('created_at', { ascending: true });
 
@@ -105,10 +105,27 @@ Deno.serve(async (req: Request) => {
             // 如果所有任务都完成或失败，触发报告完成
             if (completedTasks.length + failedTasks.length === totalTasks) {
               console.log(`✅ 报告 ${report.id} 所有分析任务已完成，触发报告生成`);
-              
-              const reportCompleted = await completeReport(supabaseUrl, supabaseKey, report.id);
-              if (reportCompleted) {
-                result.completed_reports++;
+
+              // 检查报告状态是否仍然是 analyzing，避免重复处理
+              const { data: currentReport, error: statusError } = await supabase
+                .from('reports')
+                .select('status')
+                .eq('id', report.id)
+                .single();
+
+              if (statusError) {
+                console.error(`❌ 检查报告状态失败: ${statusError.message}`);
+                result.errors.push(`检查报告 ${report.id} 状态失败: ${statusError.message}`);
+                continue;
+              }
+
+              if (currentReport.status === 'analyzing') {
+                const reportCompleted = await completeReport(supabaseUrl, supabaseKey, report.id);
+                if (reportCompleted) {
+                  result.completed_reports++;
+                }
+              } else {
+                console.log(`⚠️ 报告 ${report.id} 状态已变更为 ${currentReport.status}，跳过完成处理`);
               }
             }
           }
@@ -207,6 +224,13 @@ async function completeReport(supabaseUrl: string, supabaseKey: string, reportId
 
     if (!response.ok) {
       const errorText = await response.text();
+
+      // Check if the error is due to report already being processed
+      if (response.status === 409 || errorText.includes('already completed') || errorText.includes('already being processed')) {
+        console.log(`⚠️ 报告 ${reportId} 已经在处理中或已完成，跳过`);
+        return true; // Consider this as success to avoid retries
+      }
+
       console.error(`❌ complete-report-analysis调用失败: ${response.status} - ${errorText}`);
       return false;
     }
@@ -219,4 +243,4 @@ async function completeReport(supabaseUrl: string, supabaseKey: string, reportId
     console.error(`❌ 调用complete-report-analysis时出错:`, error);
     return false;
   }
-} 
+}

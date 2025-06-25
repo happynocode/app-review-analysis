@@ -8,6 +8,22 @@
     <meta name="theme-color" content="#2DD4BF" />
     <title>FeedbackLens - AI-Powered User Review Analysis</title>
     <meta name="description" content="Generate comprehensive reports from user reviews across App Store, Google Play, Reddit, and more. Get actionable insights in under 60 seconds." />
+    <!-- GitHub Pages SPA redirect script -->
+    <script type="text/javascript">
+      // Single Page Apps for GitHub Pages
+      // MIT License
+      // https://github.com/rafgraph/spa-github-pages
+      (function(l) {
+        if (l.search[1] === '/' ) {
+          var decoded = l.search.slice(1).split('&').map(function(s) {
+            return s.replace(/~and~/g, '&')
+          }).join('?');
+          window.history.replaceState(null, null,
+              l.pathname.slice(0, -1) + decoded + l.hash
+          );
+        }
+      }(window.location))
+    </script>
   </head>
   <body>
     <div id="root"></div>

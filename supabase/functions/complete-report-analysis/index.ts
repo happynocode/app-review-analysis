@@ -36,19 +36,40 @@ Deno.serve(async (req) => {
 
     console.log(`🎯 Starting final report assembly for ${reportId}`)
 
-    // Start the completion process
-    EdgeRuntime.waitUntil(completeReportAnalysis(reportId, supabaseClient))
+    try {
+      // Start the completion process
+      await completeReportAnalysis(reportId, supabaseClient)
 
-    return new Response(
-      JSON.stringify({ 
-        success: true, 
-        message: 'Report completion started',
-        reportId
-      }),
-      { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: 'Report completion finished successfully',
+          reportId
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      )
+    } catch (error) {
+      // Handle specific duplicate processing errors
+      if (error.message === 'ALREADY_COMPLETED' || error.message === 'ALREADY_PROCESSING') {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            message: 'Report already completed or being processed',
+            reportId,
+            skipped: true
+          }),
+          {
+            status: 409, // Conflict status
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        )
       }
-    )
+
+      // Re-throw other errors to be handled by the outer catch block
+      throw error
+    }
 
   } catch (error) {
     console.error('Error in complete-report-analysis:', error)
@@ -67,19 +88,51 @@ Deno.serve(async (req) => {
 
 async function completeReportAnalysis(reportId: string, supabaseClient: any) {
   const startTime = Date.now()
-  
+
   try {
     console.log(`🔍 Assembling final report for ${reportId}`)
 
-    // Get report information
+    // Get report information and check current status
     const { data: report, error: reportError } = await supabaseClient
       .from('reports')
-      .select('app_name')
+      .select('app_name, status')
       .eq('id', reportId)
       .single()
 
     if (reportError || !report) {
       throw new Error('Failed to fetch report information')
+    }
+
+    // Check if report is already completed to prevent duplicate processing
+    if (report.status === 'completed') {
+      console.log(`⚠️ Report ${reportId} is already completed, skipping processing`)
+      throw new Error('ALREADY_COMPLETED')
+    }
+
+    if (report.status === 'completing') {
+      console.log(`⚠️ Report ${reportId} is already being completed, skipping processing`)
+      throw new Error('ALREADY_PROCESSING')
+    }
+
+    // Atomically update status to 'completing' to prevent concurrent processing
+    const { data: updateResult, error: statusUpdateError } = await supabaseClient
+      .from('reports')
+      .update({
+        status: 'completing',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', reportId)
+      .eq('status', 'analyzing') // Only update if still in analyzing state
+      .select()
+
+    if (statusUpdateError) {
+      console.log(`⚠️ Failed to update report status to 'completing': ${statusUpdateError.message}`)
+      throw new Error('STATUS_UPDATE_FAILED')
+    }
+
+    if (!updateResult || updateResult.length === 0) {
+      console.log(`⚠️ Report ${reportId} status was not 'analyzing', possibly already being processed`)
+      throw new Error('ALREADY_PROCESSING')
     }
 
     // Get all completed themes analysis tasks for this report
@@ -183,13 +236,20 @@ async function completeReportAnalysis(reportId: string, supabaseClient: any) {
     await savePlatformThemes(reportId, finalPlatformThemes, supabaseClient)
 
     // Mark report as completed
-    await supabaseClient
+    const { error: completionError } = await supabaseClient
       .from('reports')
-      .update({ 
+      .update({
         status: 'completed',
-        completed_at: new Date().toISOString()
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       })
       .eq('id', reportId)
+      .eq('status', 'completing') // Only complete if in 'completing' state
+
+    if (completionError) {
+      console.error(`❌ Failed to mark report as completed: ${completionError.message}`)
+      throw new Error(`Failed to mark report as completed: ${completionError.message}`)
+    }
 
     const totalTime = Date.now() - startTime
     const totalThemes = finalPlatformThemes.reddit_themes.length + 
@@ -211,22 +271,29 @@ async function completeReportAnalysis(reportId: string, supabaseClient: any) {
 
   } catch (error) {
     console.error(`❌ Error completing report analysis for ${reportId}:`, error)
-    
-    // Mark report as failed
-    await supabaseClient
-      .from('reports')
-      .update({
-        status: 'failed',
-        error_message: error.message,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', reportId)
 
-    // Log failure metric
-    await logSystemMetric(supabaseClient, 'report_completion_failures', 1, 'count', {
-      report_id: reportId,
-      error: error.message
-    })
+    // Handle different error types appropriately
+    if (['ALREADY_COMPLETED', 'ALREADY_PROCESSING', 'STATUS_UPDATE_FAILED'].includes(error.message)) {
+      // Don't mark as failed for duplicate processing errors
+      console.log(`⚠️ Skipping status update for duplicate processing error: ${error.message}`)
+    } else {
+      // Mark report as failed for actual processing errors
+      await supabaseClient
+        .from('reports')
+        .update({
+          status: 'failed',
+          error_message: error.message,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', reportId)
+        .eq('status', 'completing') // Only update if still in completing state
+
+      // Log failure metric
+      await logSystemMetric(supabaseClient, 'report_completion_failures', 1, 'count', {
+        report_id: reportId,
+        error: error.message
+      })
+    }
 
     throw error
   }
