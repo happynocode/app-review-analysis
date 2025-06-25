@@ -201,8 +201,8 @@ async function performScraping(
           reddit_scraper_status: scrapedData.totalReviews > 0 ? 'completed' : 'failed',
           reddit_completed_at: completedAt,
           // 确保其他平台状态为disabled（如果它们没有被启用）
-          app_store_scraper_status: finalEnabledPlatforms.includes('app_store') ? 'disabled' : 'disabled',
-          google_play_scraper_status: finalEnabledPlatforms.includes('google_play') ? 'disabled' : 'disabled'
+          app_store_scraper_status: 'disabled',
+          google_play_scraper_status: 'disabled'
         })
         .eq('id', scrapingSessionId)
 
@@ -241,7 +241,7 @@ async function performScraping(
     }
 
     // Update individual platform scraper statuses based on results
-    const enabledSet = new Set(enabledPlatforms || ['app_store', 'google_play', 'reddit'])
+    // Note: enabledSet is already defined above at line 177
 
     if (enabledSet.has('app_store')) {
       platformUpdates.app_store_scraper_status = scrapedData.appStore.length > 0 ? 'completed' : 'failed'
