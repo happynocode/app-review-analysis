@@ -9,7 +9,7 @@ const corsHeaders = {
 // Reddit API configuration
 const REDDIT_CLIENT_ID = Deno.env.get('REDDIT_CLIENT_ID')
 const REDDIT_CLIENT_SECRET = Deno.env.get('REDDIT_CLIENT_SECRET')
-const REDDIT_USER_AGENT = Deno.env.get('REDDIT_USER_AGENT') || 'ReviewInsight/1.0 by YourUsername'
+const REDDIT_USER_AGENT = Deno.env.get('REDDIT_USER_AGENT') || 'FeedbackLens/1.0 by YourUsername'
 
 interface ScrapeRequest {
   appName: string // 用户选择的应用名称（从应用列表中选择的完整名称）

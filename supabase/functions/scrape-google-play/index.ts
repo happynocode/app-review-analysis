@@ -42,7 +42,7 @@ async function fetchReviewsFromRapidAPI(appId: string, limit: number = 4000): Pr
         'x-rapidapi-host': RAPIDAPI_HOST,
         'x-rapidapi-key': RAPIDAPI_KEY,
         'Accept': 'application/json',
-        'User-Agent': 'ReviewInsight/1.0'
+        'User-Agent': 'FeedbackLens/1.0'
       },
     })
 

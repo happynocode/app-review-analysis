@@ -205,8 +205,8 @@ export const LandingPage: React.FC = () => {
             transition={{ duration: 0.8 }}
             className="text-5xl md:text-6xl font-bold text-white mb-6 leading-tight"
           >
-            Unlock User Insights
-            <span className="text-[#2DD4BF] block">with AI-Powered Analysis</span>
+            Transform User Feedback
+            <span className="text-[#2DD4BF] block">into Actionable Insights</span>
           </motion.h1>
           
           <motion.p
