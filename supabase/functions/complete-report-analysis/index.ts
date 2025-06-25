@@ -556,25 +556,109 @@ Return JSON only:
 
     // Clean the content by removing markdown code blocks and other formatting
     let cleanContent = content.trim()
-    
+
     // Remove ```json and ``` markers
     cleanContent = cleanContent.replace(/^```json\s*/i, '')
     cleanContent = cleanContent.replace(/```\s*$/, '')
-    
+
     // Remove any leading/trailing whitespace and non-JSON content
     cleanContent = cleanContent.trim()
-    
-    // Find JSON content between { and }
+
+    // More robust JSON extraction
     const jsonStart = cleanContent.indexOf('{')
-    const jsonEnd = cleanContent.lastIndexOf('}')
-    
-    if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-      cleanContent = cleanContent.slice(jsonStart, jsonEnd + 1)
+    let jsonEnd = -1
+
+    if (jsonStart !== -1) {
+      // Find the matching closing brace by counting braces
+      let braceCount = 0
+      let inString = false
+      let escapeNext = false
+
+      for (let i = jsonStart; i < cleanContent.length; i++) {
+        const char = cleanContent[i]
+
+        if (escapeNext) {
+          escapeNext = false
+          continue
+        }
+
+        if (char === '\\') {
+          escapeNext = true
+          continue
+        }
+
+        if (char === '"' && !escapeNext) {
+          inString = !inString
+          continue
+        }
+
+        if (!inString) {
+          if (char === '{') {
+            braceCount++
+          } else if (char === '}') {
+            braceCount--
+            if (braceCount === 0) {
+              jsonEnd = i
+              break
+            }
+          }
+        }
+      }
+
+      if (jsonEnd !== -1) {
+        cleanContent = cleanContent.slice(jsonStart, jsonEnd + 1)
+      }
     }
     
     console.log('🧹 Cleaned DeepSeek response for JSON parsing')
-    
-    const result = JSON.parse(cleanContent)
+    console.log('📝 Content length:', cleanContent.length)
+    console.log('📝 First 500 chars:', cleanContent.substring(0, 500))
+    console.log('📝 Last 500 chars:', cleanContent.substring(Math.max(0, cleanContent.length - 500)))
+
+    let result
+    try {
+      result = JSON.parse(cleanContent)
+    } catch (parseError) {
+      console.error('❌ JSON Parse Error:', parseError.message)
+      console.error('📝 Full content that failed to parse:', cleanContent)
+
+      // Try to find and fix common JSON issues
+      let fixedContent = cleanContent
+
+      // Fix trailing commas in arrays and objects
+      fixedContent = fixedContent.replace(/,(\s*[}\]])/g, '$1')
+
+      // Fix missing commas between array elements
+      fixedContent = fixedContent.replace(/}(\s*){/g, '},$1{')
+      fixedContent = fixedContent.replace(/](\s*){/g, '],$1{')
+
+      // Fix missing commas between object properties
+      fixedContent = fixedContent.replace(/"(\s*)"([^:"])/g, '",$1"$2')
+
+      // Fix unescaped quotes in strings
+      fixedContent = fixedContent.replace(/([^\\])"([^",:}\]]*)"([^,:}\]]*)/g, '$1\\"$2\\"$3')
+
+      // Remove any non-printable characters that might cause issues
+      fixedContent = fixedContent.replace(/[\x00-\x1F\x7F-\x9F]/g, '')
+
+      // Ensure proper array/object structure
+      if (!fixedContent.startsWith('{')) {
+        const firstBrace = fixedContent.indexOf('{')
+        if (firstBrace > 0) {
+          fixedContent = fixedContent.substring(firstBrace)
+        }
+      }
+
+      console.log('🔧 Attempting to fix JSON and retry parsing...')
+      try {
+        result = JSON.parse(fixedContent)
+        console.log('✅ Successfully parsed fixed JSON')
+      } catch (secondError) {
+        console.error('❌ Still failed after JSON fixes:', secondError.message)
+        console.error('📝 Fixed content:', fixedContent)
+        throw new Error(`Failed to parse DeepSeek JSON response: ${parseError.message}`)
+      }
+    }
     if (result.themes && Array.isArray(result.themes)) {
       // VALIDATE QUOTES: Ensure all quotes exist in original input
       let invalidQuotesCount = 0
