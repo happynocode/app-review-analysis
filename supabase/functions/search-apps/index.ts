@@ -6,6 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
+
 interface SearchAppsRequest {
   companyName: string
   reportId?: string
