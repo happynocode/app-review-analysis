@@ -236,7 +236,22 @@ async function completeReportAnalysis(reportId: string, supabaseClient: any) {
     await savePlatformThemes(reportId, finalPlatformThemes, supabaseClient)
 
     // Mark report as completed
-    const { error: completionError } = await supabaseClient
+    console.log(`🔄 Attempting to mark report ${reportId} as completed...`)
+
+    // First check current status
+    const { data: currentReport, error: statusCheckError } = await supabaseClient
+      .from('reports')
+      .select('status')
+      .eq('id', reportId)
+      .single()
+
+    if (statusCheckError) {
+      console.error(`❌ Failed to check current report status: ${statusCheckError.message}`)
+    } else {
+      console.log(`📊 Current report status: ${currentReport.status}`)
+    }
+
+    const { data: completionUpdateResult, error: completionError } = await supabaseClient
       .from('reports')
       .update({
         status: 'completed',
@@ -245,10 +260,35 @@ async function completeReportAnalysis(reportId: string, supabaseClient: any) {
       })
       .eq('id', reportId)
       .eq('status', 'completing') // Only complete if in 'completing' state
+      .select()
 
     if (completionError) {
       console.error(`❌ Failed to mark report as completed: ${completionError.message}`)
+      console.error(`❌ Error details:`, completionError)
       throw new Error(`Failed to mark report as completed: ${completionError.message}`)
+    }
+
+    if (!completionUpdateResult || completionUpdateResult.length === 0) {
+      console.warn(`⚠️ No rows were updated when marking report as completed. Current status might not be 'completing'.`)
+      // Try to update regardless of current status
+      const { data: forceUpdateResult, error: forceUpdateError } = await supabaseClient
+        .from('reports')
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', reportId)
+        .select()
+
+      if (forceUpdateError) {
+        console.error(`❌ Force update also failed: ${forceUpdateError.message}`)
+        throw new Error(`Failed to mark report as completed: ${forceUpdateError.message}`)
+      } else {
+        console.log(`✅ Force update successful: ${forceUpdateResult.length} rows updated`)
+      }
+    } else {
+      console.log(`✅ Successfully marked report as completed: ${completionUpdateResult.length} rows updated`)
     }
 
     const totalTime = Date.now() - startTime
@@ -312,14 +352,9 @@ async function processThemes(appName: string, allThemes: any[], platform?: strin
     }]
   }
 
-  // Use intelligent merging with DeepSeek if we have many themes
-  if (allThemes.length > 50) {
-    console.log(`📊 Large theme set detected (${allThemes.length}), using DeepSeek for intelligent merging`)
-    return await intelligentMergeWithDeepSeek(appName, allThemes)
-  } else {
-    console.log(`📊 Moderate theme set (${allThemes.length}), using rule-based merging`)
-    return ruleBasedMerge(allThemes)
-  }
+  // Use enhanced rule-based merging for all theme sets
+  console.log(`📊 Processing ${allThemes.length} themes using enhanced rule-based merging`)
+  return ruleBasedMerge(allThemes)
 }
 
 async function processSentiment(sentimentBatches: any[]) {
@@ -465,279 +500,63 @@ async function processIssues(allIssues: any[]) {
     }))
 }
 
-async function intelligentMergeWithDeepSeek(appName: string, allThemes: any[]) {
-  const deepseekApiKey = Deno.env.get('DEEPSEEK_API_KEY')
-  
-  if (!deepseekApiKey) {
-    console.log('⚠️ DeepSeek API key not available, falling back to rule-based merge')
-    return ruleBasedMerge(allThemes)
-  }
 
-  try {
-    // Limit themes for API call
-    const limitedThemes = allThemes.slice(0, 80) // Limit to prevent token overflow
-
-    // Extract all original quotes for validation
-    const originalQuotes = new Set()
-    limitedThemes.forEach(theme => {
-      if (Array.isArray(theme.quotes)) {
-        theme.quotes.forEach(quote => {
-          if (quote && typeof quote === 'string') {
-            originalQuotes.add(quote.trim())
-          }
-        })
-      }
-    })
-
-    const prompt = `Merge and deduplicate these themes for "${appName}". Return between 30-50 final themes based on what makes most sense for the data quality and diversity.
-
-Input themes (${limitedThemes.length}):
-${JSON.stringify(limitedThemes, null, 2)}
-
-CRITICAL INSTRUCTIONS:
-1. Merge similar themes together
-2. Remove duplicates
-3. Prioritize themes by importance and frequency
-4. Ensure each final theme is distinct and meaningful
-5. ONLY use quotes that exist in the input themes - DO NOT generate new quotes
-6. When merging themes, combine the existing quotes from the input themes
-7. Return 30-50 themes based on data quality - use your judgment to determine the optimal number
-
-QUOTE HANDLING RULES:
-- NEVER create, modify, or paraphrase quotes
-- ONLY select from the exact quotes provided in the input themes
-- When merging themes, combine the original quotes from those themes
-- If no suitable quotes exist in input, use empty quotes array []
-- Quotes must be verbatim from user reviews, not AI-generated summaries
-
-Return JSON only:
-{
-  "themes": [
-    {
-      "title": "Clear theme title (2-5 words)",
-      "description": "Detailed description (2-3 sentences)",
-      "quotes": ["Exact quote from input themes only", "Another exact quote from input themes only"],
-      "suggestions": ["Actionable suggestion 1", "Actionable suggestion 2"]
-    }
-  ]
-}`
-
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout
-
-    const response = await fetch('https://api.deepseek.com/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${deepseekApiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [{ role: 'user', content: prompt }],
-        stream: false,
-        max_tokens: 4000,
-        temperature: 0.7,
-      }),
-      signal: controller.signal
-    })
-
-    clearTimeout(timeoutId)
-
-    if (!response.ok) {
-      throw new Error(`DeepSeek API error: ${response.status}`)
-    }
-
-    const data = await response.json()
-    const content = data.choices?.[0]?.message?.content
-
-    if (!content) {
-      throw new Error('No content in DeepSeek response')
-    }
-
-    // Clean the content by removing markdown code blocks and other formatting
-    let cleanContent = content.trim()
-
-    // Remove ```json and ``` markers
-    cleanContent = cleanContent.replace(/^```json\s*/i, '')
-    cleanContent = cleanContent.replace(/```\s*$/, '')
-
-    // Remove any leading/trailing whitespace and non-JSON content
-    cleanContent = cleanContent.trim()
-
-    // More robust JSON extraction
-    const jsonStart = cleanContent.indexOf('{')
-    let jsonEnd = -1
-
-    if (jsonStart !== -1) {
-      // Find the matching closing brace by counting braces
-      let braceCount = 0
-      let inString = false
-      let escapeNext = false
-
-      for (let i = jsonStart; i < cleanContent.length; i++) {
-        const char = cleanContent[i]
-
-        if (escapeNext) {
-          escapeNext = false
-          continue
-        }
-
-        if (char === '\\') {
-          escapeNext = true
-          continue
-        }
-
-        if (char === '"' && !escapeNext) {
-          inString = !inString
-          continue
-        }
-
-        if (!inString) {
-          if (char === '{') {
-            braceCount++
-          } else if (char === '}') {
-            braceCount--
-            if (braceCount === 0) {
-              jsonEnd = i
-              break
-            }
-          }
-        }
-      }
-
-      if (jsonEnd !== -1) {
-        cleanContent = cleanContent.slice(jsonStart, jsonEnd + 1)
-      }
-    }
-    
-    console.log('🧹 Cleaned DeepSeek response for JSON parsing')
-    console.log('📝 Content length:', cleanContent.length)
-    console.log('📝 First 500 chars:', cleanContent.substring(0, 500))
-    console.log('📝 Last 500 chars:', cleanContent.substring(Math.max(0, cleanContent.length - 500)))
-
-    let result
-    try {
-      result = JSON.parse(cleanContent)
-    } catch (parseError) {
-      console.error('❌ JSON Parse Error:', parseError.message)
-      console.error('📝 Full content that failed to parse:', cleanContent)
-
-      // Try to find and fix common JSON issues
-      let fixedContent = cleanContent
-
-      // Fix trailing commas in arrays and objects
-      fixedContent = fixedContent.replace(/,(\s*[}\]])/g, '$1')
-
-      // Fix missing commas between array elements
-      fixedContent = fixedContent.replace(/}(\s*){/g, '},$1{')
-      fixedContent = fixedContent.replace(/](\s*){/g, '],$1{')
-
-      // Fix missing commas between object properties
-      fixedContent = fixedContent.replace(/"(\s*)"([^:"])/g, '",$1"$2')
-
-      // Fix unescaped quotes in strings
-      fixedContent = fixedContent.replace(/([^\\])"([^",:}\]]*)"([^,:}\]]*)/g, '$1\\"$2\\"$3')
-
-      // Remove any non-printable characters that might cause issues
-      fixedContent = fixedContent.replace(/[\x00-\x1F\x7F-\x9F]/g, '')
-
-      // Ensure proper array/object structure
-      if (!fixedContent.startsWith('{')) {
-        const firstBrace = fixedContent.indexOf('{')
-        if (firstBrace > 0) {
-          fixedContent = fixedContent.substring(firstBrace)
-        }
-      }
-
-      console.log('🔧 Attempting to fix JSON and retry parsing...')
-      try {
-        result = JSON.parse(fixedContent)
-        console.log('✅ Successfully parsed fixed JSON')
-      } catch (secondError) {
-        console.error('❌ Still failed after JSON fixes:', secondError.message)
-        console.error('📝 Fixed content:', fixedContent)
-        throw new Error(`Failed to parse DeepSeek JSON response: ${parseError.message}`)
-      }
-    }
-    if (result.themes && Array.isArray(result.themes)) {
-      // VALIDATE QUOTES: Ensure all quotes exist in original input
-      let invalidQuotesCount = 0
-      const validatedThemes = result.themes.map(theme => {
-        if (Array.isArray(theme.quotes)) {
-          const validQuotes = theme.quotes.filter(quote => {
-            const isValid = originalQuotes.has(quote?.trim())
-            if (!isValid && quote) {
-              invalidQuotesCount++
-              console.warn(`🚨 Invalid quote detected (not in original): "${quote.substring(0, 100)}..."`)
-            }
-            return isValid
-          })
-          return {
-            ...theme,
-            quotes: validQuotes
-          }
-        }
-        return theme
-      })
-
-      if (invalidQuotesCount > 0) {
-        console.warn(`⚠️ Removed ${invalidQuotesCount} invalid quotes that were not in original input`)
-      }
-
-      console.log(`✅ DeepSeek merge successful: ${validatedThemes.length} final themes`)
-      console.log(`🔍 Quote validation: Original had ${originalQuotes.size} unique quotes`)
-      return validatedThemes
-    } else {
-      throw new Error('Invalid themes format in API response')
-    }
-
-  } catch (error) {
-    console.error('DeepSeek merge failed:', error)
-    console.log('🔄 Falling back to rule-based merge')
-    return ruleBasedMerge(allThemes)
-  }
-}
 
 function ruleBasedMerge(allThemes: any[]) {
   console.log(`🔧 Using enhanced rule-based merge for ${allThemes.length} themes`)
 
-  // Step 1: Group similar themes based on title similarity
+  // Step 0: Pre-filter and clean themes
+  const cleanedThemes = allThemes
+    .filter(theme => theme && theme.title && theme.title.trim().length > 0)
+    .map(theme => ({
+      ...theme,
+      title: theme.title.trim(),
+      description: theme.description?.trim() || 'No description available',
+      quotes: Array.isArray(theme.quotes) ? theme.quotes.filter(q => q && q.trim().length > 0) : [],
+      suggestions: Array.isArray(theme.suggestions) ? theme.suggestions.filter(s => s && s.trim().length > 0) : []
+    }))
+
+  console.log(`🧹 Cleaned themes: ${allThemes.length} → ${cleanedThemes.length}`)
+
+  // Step 1: Advanced grouping with multiple similarity checks
   const themeGroups = []
   const processed = new Set()
 
-  for (let i = 0; i < allThemes.length; i++) {
+  for (let i = 0; i < cleanedThemes.length; i++) {
     if (processed.has(i)) continue
-    
-    const currentTheme = allThemes[i]
-    if (!currentTheme.title) continue
-    
+
+    const currentTheme = cleanedThemes[i]
     const group = {
       themes: [currentTheme],
-      indices: [i]
+      indices: [i],
+      primaryTitle: currentTheme.title
     }
-    
-    // Find similar themes to merge
-    for (let j = i + 1; j < allThemes.length; j++) {
+
+    // Find similar themes using multiple criteria
+    for (let j = i + 1; j < cleanedThemes.length; j++) {
       if (processed.has(j)) continue
-      
-      const otherTheme = allThemes[j]
-      if (!otherTheme.title) continue
-      
-      if (areThemesSimilar(currentTheme.title, otherTheme.title)) {
+
+      const otherTheme = cleanedThemes[j]
+
+      if (areThemesAdvancedSimilar(currentTheme, otherTheme)) {
         group.themes.push(otherTheme)
         group.indices.push(j)
         processed.add(j)
       }
     }
-    
+
     themeGroups.push(group)
     processed.add(i)
   }
 
-  console.log(`📊 Grouped ${allThemes.length} themes into ${themeGroups.length} groups`)
+  console.log(`📊 Advanced grouping: ${cleanedThemes.length} themes → ${themeGroups.length} groups`)
+
+  // Step 1.5: Second pass - merge groups that are similar to each other
+  const finalGroups = mergeRelatedGroups(themeGroups)
+  console.log(`🔗 Group consolidation: ${themeGroups.length} groups → ${finalGroups.length} groups`)
 
   // Step 2: Merge themes within each group
-  const mergedThemes = themeGroups.map(group => {
+  const mergedThemes = finalGroups.map(group => {
     if (group.themes.length === 1) {
       // Single theme - just clean it up
       const theme = group.themes[0]
@@ -754,115 +573,439 @@ function ruleBasedMerge(allThemes: any[]) {
     }
   })
 
-  // Step 3: Sort by importance and limit to 50
-  const finalThemes = mergedThemes
-    .filter(theme => theme.title && theme.title.length > 0)
-    .sort((a, b) => (b.importance_score || 0) - (a.importance_score || 0))
+  // Step 3: Final deduplication pass (catch any remaining duplicates)
+  const dedupedThemes = performFinalDeduplication(mergedThemes)
+  console.log(`🔍 Final deduplication: ${mergedThemes.length} → ${dedupedThemes.length} themes`)
+
+  // Step 4: Sort by importance and limit to 50
+  const finalThemes = dedupedThemes
+    .filter((theme: any) => theme && theme.title && theme.title.length > 0)
+    .sort((a: any, b: any) => (b.importance_score || 0) - (a.importance_score || 0))
     .slice(0, 50)
-    .map(theme => ({
+    .map((theme: any) => ({
       title: theme.title,
       description: theme.description,
-      quotes: theme.quotes,
-      suggestions: theme.suggestions
+      quotes: theme.quotes || [],
+      suggestions: theme.suggestions || []
     }))
 
-  console.log(`✅ Rule-based merge completed: ${finalThemes.length} final themes`)
+  console.log(`✅ Enhanced rule-based merge completed: ${finalThemes.length} final themes`)
+  console.log(`📊 Deduplication summary: ${allThemes.length} input → ${finalThemes.length} output (${((1 - finalThemes.length / allThemes.length) * 100).toFixed(1)}% reduction)`)
   return finalThemes
 }
 
-// Helper function to check if two theme titles are similar
-function areThemesSimilar(title1: string, title2: string): boolean {
-  if (!title1 || !title2) return false
-  
+// Enhanced similarity detection that considers multiple factors
+function areThemesAdvancedSimilar(theme1: any, theme2: any): boolean {
+  if (!theme1?.title || !theme2?.title) return false
+
+  // First check title similarity
+  const titleSimilarity = calculateTitleSimilarity(theme1.title, theme2.title)
+  if (titleSimilarity >= 0.8) return true // High title similarity
+
+  // If moderate title similarity, check content overlap
+  if (titleSimilarity >= 0.5) {
+    const contentSimilarity = calculateContentSimilarity(theme1, theme2)
+    if (contentSimilarity >= 0.6) return true
+  }
+
+  // Check for semantic similarity (common patterns)
+  if (areThemesSemanticallySimilar(theme1.title, theme2.title)) return true
+
+  return false
+}
+
+// Calculate title similarity with multiple methods
+function calculateTitleSimilarity(title1: string, title2: string): number {
   const normalize = (str: string) => str.toLowerCase().trim()
     .replace(/[^\w\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-  
+
   const norm1 = normalize(title1)
   const norm2 = normalize(title2)
-  
+
   // Exact match
-  if (norm1 === norm2) return true
-  
-  // Check if one contains the other (with minimum length)
+  if (norm1 === norm2) return 1.0
+
+  // Substring match (with length consideration)
   if (norm1.length >= 5 && norm2.length >= 5) {
-    if (norm1.includes(norm2) || norm2.includes(norm1)) return true
+    if (norm1.includes(norm2) || norm2.includes(norm1)) {
+      const shorter = Math.min(norm1.length, norm2.length)
+      const longer = Math.max(norm1.length, norm2.length)
+      return shorter / longer // Penalize length differences
+    }
   }
-  
-  // Check word overlap (at least 70% common words)
+
+  // Word overlap similarity (Jaccard index)
   const words1 = new Set(norm1.split(' ').filter(w => w.length > 2))
   const words2 = new Set(norm2.split(' ').filter(w => w.length > 2))
-  
-  if (words1.size === 0 || words2.size === 0) return false
-  
+
+  if (words1.size === 0 || words2.size === 0) return 0
+
   const intersection = new Set([...words1].filter(w => words2.has(w)))
   const union = new Set([...words1, ...words2])
-  
-  const similarity = intersection.size / union.size
-  return similarity >= 0.7
+
+  return intersection.size / union.size
 }
 
-// Helper function to merge a group of similar themes
+// Check content similarity based on quotes and descriptions
+function calculateContentSimilarity(theme1: any, theme2: any): number {
+  let similarity = 0
+  let factors = 0
+
+  // Compare descriptions
+  if (theme1.description && theme2.description) {
+    const descSim = calculateTitleSimilarity(theme1.description, theme2.description)
+    similarity += descSim
+    factors++
+  }
+
+  // Compare quotes overlap
+  if (theme1.quotes?.length > 0 && theme2.quotes?.length > 0) {
+    const quotes1 = new Set(theme1.quotes.map(q => q.toLowerCase().trim()))
+    const quotes2 = new Set(theme2.quotes.map(q => q.toLowerCase().trim()))
+
+    const commonQuotes = new Set([...quotes1].filter(q => quotes2.has(q)))
+    const totalQuotes = new Set([...quotes1, ...quotes2])
+
+    if (totalQuotes.size > 0) {
+      similarity += commonQuotes.size / totalQuotes.size
+      factors++
+    }
+  }
+
+  return factors > 0 ? similarity / factors : 0
+}
+
+// Check for semantic similarity using common patterns
+function areThemesSemanticallySimilar(title1: string, title2: string): boolean {
+  const patterns = [
+    // Performance/Speed related
+    ['performance', 'speed', 'slow', 'fast', 'lag', 'optimization'],
+    // UI/UX related
+    ['interface', 'design', 'ui', 'ux', 'layout', 'visual'],
+    // Bug/Error related
+    ['bug', 'error', 'crash', 'issue', 'problem', 'glitch'],
+    // Feature requests
+    ['feature', 'request', 'add', 'need', 'want', 'missing'],
+    // Pricing/Cost related
+    ['price', 'cost', 'expensive', 'cheap', 'subscription', 'payment'],
+    // Support/Help related
+    ['support', 'help', 'customer', 'service', 'response'],
+    // Security/Privacy related
+    ['security', 'privacy', 'safe', 'protection', 'data'],
+    // Integration/Compatibility
+    ['integration', 'compatibility', 'sync', 'connect', 'api']
+  ]
+
+  const norm1 = title1.toLowerCase()
+  const norm2 = title2.toLowerCase()
+
+  for (const pattern of patterns) {
+    const matches1 = pattern.filter(word => norm1.includes(word)).length
+    const matches2 = pattern.filter(word => norm2.includes(word)).length
+
+    // If both titles have words from the same semantic category
+    if (matches1 > 0 && matches2 > 0) {
+      return true
+    }
+  }
+
+  return false
+}
+
+// Legacy function for backward compatibility
+function areThemesSimilar(title1: string, title2: string): boolean {
+  return calculateTitleSimilarity(title1, title2) >= 0.7
+}
+
+// Merge groups that are similar to each other (second-level deduplication)
+function mergeRelatedGroups(groups: any[]): any[] {
+  const finalGroups = []
+  const processed = new Set()
+
+  for (let i = 0; i < groups.length; i++) {
+    if (processed.has(i)) continue
+
+    const currentGroup = groups[i]
+    const mergedGroup = {
+      themes: [...currentGroup.themes],
+      indices: [...currentGroup.indices],
+      primaryTitle: currentGroup.primaryTitle
+    }
+
+    // Look for other groups to merge with this one
+    for (let j = i + 1; j < groups.length; j++) {
+      if (processed.has(j)) continue
+
+      const otherGroup = groups[j]
+
+      // Check if groups should be merged
+      if (shouldMergeGroups(currentGroup, otherGroup)) {
+        mergedGroup.themes.push(...otherGroup.themes)
+        mergedGroup.indices.push(...otherGroup.indices)
+        processed.add(j)
+      }
+    }
+
+    finalGroups.push(mergedGroup)
+    processed.add(i)
+  }
+
+  return finalGroups
+}
+
+// Determine if two groups should be merged
+function shouldMergeGroups(group1: any, group2: any): boolean {
+  // Check if primary titles are similar
+  const titleSim = calculateTitleSimilarity(group1.primaryTitle, group2.primaryTitle)
+  if (titleSim >= 0.6) return true
+
+  // Check if any theme in group1 is similar to any theme in group2
+  for (const theme1 of group1.themes) {
+    for (const theme2 of group2.themes) {
+      if (areThemesAdvancedSimilar(theme1, theme2)) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
+// Enhanced theme group merging with better deduplication
 function mergeThemeGroup(themes: any[]): any {
-  // Choose the best title (longest meaningful one)
-  const bestTitle = themes
+  if (themes.length === 0) return null
+
+  // Choose the best title using multiple criteria
+  const bestTitle = selectBestTitle(themes)
+
+  // Combine descriptions intelligently
+  const bestDescription = selectBestDescription(themes)
+
+  // Advanced quote deduplication and selection
+  const uniqueQuotes = deduplicateQuotes(themes)
+
+  // Advanced suggestion deduplication and selection
+  const uniqueSuggestions = deduplicateSuggestions(themes)
+
+  const mergedTheme = {
+    title: bestTitle,
+    description: bestDescription,
+    quotes: uniqueQuotes.slice(0, 10), // Increased limit for better coverage
+    suggestions: uniqueSuggestions.slice(0, 8), // Increased limit
+    importance_score: themes.reduce((sum, theme) => sum + calculateImportanceScore(theme), 0),
+    merged_count: themes.length // Track how many themes were merged
+  }
+
+  console.log(`🔗 Merged ${themes.length} themes into: "${bestTitle}" (${mergedTheme.quotes.length} quotes, ${mergedTheme.suggestions.length} suggestions)`)
+  return mergedTheme
+}
+
+// Select the best title from a group of themes
+function selectBestTitle(themes: any[]): string {
+  const titles = themes
     .map(t => t.title)
-    .filter(title => title && title.length > 0)
-    .sort((a, b) => b.length - a.length)[0] || themes[0].title
-  
-  // Combine descriptions (take the most detailed one)
-  const bestDescription = themes
+    .filter(title => title && title.trim().length > 0)
+
+  if (titles.length === 0) return 'Untitled Theme'
+  if (titles.length === 1) return titles[0]
+
+  // Score titles based on multiple criteria
+  const scoredTitles = titles.map(title => ({
+    title,
+    score: scoreTitleQuality(title, titles)
+  }))
+
+  return scoredTitles.sort((a, b) => b.score - a.score)[0].title
+}
+
+// Score title quality for selection
+function scoreTitleQuality(title: string, allTitles: string[]): number {
+  let score = 0
+
+  // Prefer titles that are not too short or too long
+  const length = title.length
+  if (length >= 10 && length <= 50) score += 2
+  else if (length >= 5 && length <= 80) score += 1
+
+  // Prefer titles with meaningful words (not just generic terms)
+  const meaningfulWords = ['issue', 'problem', 'feature', 'bug', 'performance', 'design', 'user', 'interface']
+  const titleLower = title.toLowerCase()
+  meaningfulWords.forEach(word => {
+    if (titleLower.includes(word)) score += 1
+  })
+
+  // Prefer titles that are more specific (contain more unique words)
+  const words = title.toLowerCase().split(/\s+/).filter(w => w.length > 2)
+  score += Math.min(words.length, 5) * 0.5
+
+  // Penalize very generic titles
+  const genericTerms = ['general', 'misc', 'other', 'various', 'multiple']
+  genericTerms.forEach(term => {
+    if (titleLower.includes(term)) score -= 2
+  })
+
+  return score
+}
+
+// Select the best description
+function selectBestDescription(themes: any[]): string {
+  const descriptions = themes
     .map(t => t.description)
-    .filter(desc => desc && desc.length > 10)
-    .sort((a, b) => b.length - a.length)[0] || 'No description available'
-  
-  // Combine all quotes and deduplicate (ONLY use existing quotes from input themes)
-  const allQuotes = new Set()
+    .filter(desc => desc && desc.trim().length > 10)
+
+  if (descriptions.length === 0) return 'No description available'
+
+  // Prefer longer, more detailed descriptions
+  return descriptions.sort((a, b) => b.length - a.length)[0]
+}
+
+// Advanced quote deduplication
+function deduplicateQuotes(themes: any[]): string[] {
+  const quotesMap = new Map() // Use Map to track quote frequency
+
   themes.forEach(theme => {
     if (Array.isArray(theme.quotes)) {
       theme.quotes.forEach(quote => {
-        // Only add quotes that are actual user review content (length check + content validation)
         if (quote && typeof quote === 'string' && quote.length > 10 && quote.length < 1000) {
-          // Additional validation: ensure it looks like user-generated content
           const trimmedQuote = quote.trim()
-          // Avoid adding quotes that look like AI-generated summaries
-          if (!trimmedQuote.startsWith('Users report') && 
-              !trimmedQuote.startsWith('Many users') && 
-              !trimmedQuote.startsWith('Several users') &&
-              !trimmedQuote.includes('analysis shows') &&
-              !trimmedQuote.includes('feedback indicates')) {
-            allQuotes.add(trimmedQuote)
+
+          // Skip AI-generated looking quotes
+          if (isUserGeneratedQuote(trimmedQuote)) {
+            const normalizedQuote = normalizeQuoteForDedup(trimmedQuote)
+
+            if (!quotesMap.has(normalizedQuote)) {
+              quotesMap.set(normalizedQuote, {
+                original: trimmedQuote,
+                count: 1,
+                length: trimmedQuote.length
+              })
+            } else {
+              const existing = quotesMap.get(normalizedQuote)
+              existing.count++
+              // Keep the longer version if it's more detailed
+              if (trimmedQuote.length > existing.length) {
+                existing.original = trimmedQuote
+                existing.length = trimmedQuote.length
+              }
+            }
           }
         }
       })
     }
   })
-  
-  console.log(`🔍 Merged quotes: found ${allQuotes.size} unique quotes from ${themes.length} themes`)
-  
-  // Combine all suggestions and deduplicate
-  const allSuggestions = new Set()
+
+  // Sort by frequency and quality, then return the original quotes
+  return Array.from(quotesMap.values())
+    .sort((a, b) => {
+      // First by frequency (more common = more important)
+      if (b.count !== a.count) return b.count - a.count
+      // Then by length (more detailed = better)
+      return b.length - a.length
+    })
+    .map(item => item.original)
+}
+
+// Check if a quote looks like user-generated content
+function isUserGeneratedQuote(quote: string): boolean {
+  const aiPatterns = [
+    /^(Users|Many users|Several users|Some users) (report|mention|state|indicate)/i,
+    /analysis shows/i,
+    /feedback indicates/i,
+    /according to (users|reviews|feedback)/i,
+    /commonly reported/i,
+    /frequently mentioned/i
+  ]
+
+  return !aiPatterns.some(pattern => pattern.test(quote))
+}
+
+// Normalize quote for deduplication (remove minor variations)
+function normalizeQuoteForDedup(quote: string): string {
+  return quote
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ') // Remove punctuation
+    .replace(/\s+/g, ' ') // Normalize whitespace
+    .trim()
+}
+
+// Advanced suggestion deduplication
+function deduplicateSuggestions(themes: any[]): string[] {
+  const suggestionsMap = new Map()
+
   themes.forEach(theme => {
     if (Array.isArray(theme.suggestions)) {
       theme.suggestions.forEach(suggestion => {
         if (suggestion && suggestion.length > 5) {
-          allSuggestions.add(suggestion.trim())
+          const trimmedSuggestion = suggestion.trim()
+          const normalizedSuggestion = normalizeSuggestionForDedup(trimmedSuggestion)
+
+          if (!suggestionsMap.has(normalizedSuggestion)) {
+            suggestionsMap.set(normalizedSuggestion, {
+              original: trimmedSuggestion,
+              count: 1,
+              length: trimmedSuggestion.length
+            })
+          } else {
+            const existing = suggestionsMap.get(normalizedSuggestion)
+            existing.count++
+            // Keep the more detailed version
+            if (trimmedSuggestion.length > existing.length) {
+              existing.original = trimmedSuggestion
+              existing.length = trimmedSuggestion.length
+            }
+          }
         }
       })
     }
   })
-  
-  const mergedTheme = {
-    title: bestTitle,
-    description: bestDescription,
-    quotes: Array.from(allQuotes).slice(0, 8), // Increase quote limit for merged themes
-    suggestions: Array.from(allSuggestions).slice(0, 6), // Increase suggestion limit
-    importance_score: themes.reduce((sum, theme) => sum + calculateImportanceScore(theme), 0)
+
+  return Array.from(suggestionsMap.values())
+    .sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count
+      return b.length - a.length
+    })
+    .map(item => item.original)
+}
+
+// Normalize suggestion for deduplication
+function normalizeSuggestionForDedup(suggestion: string): string {
+  return suggestion
+    .toLowerCase()
+    .replace(/^(add|implement|create|develop|improve|fix|update|enhance)\s+/i, '') // Remove action verbs
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+// Final deduplication pass to catch any remaining duplicates
+function performFinalDeduplication(themes: any[]): any[] {
+  const finalThemes: any[] = []
+  const seenTitles = new Set<string>()
+
+  for (const theme of themes) {
+    if (!theme || !theme.title) continue
+
+    const normalizedTitle = theme.title.toLowerCase().trim()
+    let isDuplicate = false
+
+    // Check against all previously seen titles
+    for (const seenTitle of seenTitles) {
+      if (calculateTitleSimilarity(normalizedTitle, seenTitle as string) >= 0.85) {
+        isDuplicate = true
+        console.log(`🔍 Final dedup: Skipping "${theme.title}" (similar to existing theme)`)
+        break
+      }
+    }
+
+    if (!isDuplicate) {
+      finalThemes.push(theme)
+      seenTitles.add(normalizedTitle)
+    }
   }
-  
-  console.log(`🔗 Merged ${themes.length} themes into: "${bestTitle}" (${mergedTheme.quotes.length} quotes, ${mergedTheme.suggestions.length} suggestions)`)
-  return mergedTheme
+
+  return finalThemes
 }
 
 // Helper function to calculate importance score for a theme
