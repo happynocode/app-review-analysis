@@ -2,7 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
@@ -397,7 +397,6 @@ async function scrapeSpecificIOSApp(appInfo: any, scrapingSessionId: string) {
     const response = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/scrape-app-store`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ 
@@ -424,7 +423,6 @@ async function scrapeSpecificAndroidApp(appInfo: any, scrapingSessionId: string)
     const response = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/scrape-google-play`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ 
@@ -454,7 +452,6 @@ async function scrapeRedditForApp(appName: string, scrapingSessionId: string, us
     const response = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/scrape-reddit`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ 
@@ -481,10 +478,8 @@ async function scrapeRedditForApp(appName: string, scrapingSessionId: string, us
 
 function startParallelScraping(appName: string, scrapingSessionId: string, redditSearchName?: string, enabledPlatforms?: string[], userSearchTerm?: string, selectedAppName?: string) {
   const baseUrl = Deno.env.get('SUPABASE_URL')
-  const authHeader = `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')}`
-  
+
   const headers = {
-    'Authorization': authHeader,
     'Content-Type': 'application/json'
   }
 
