@@ -105,8 +105,8 @@ export const getReportWithScrapedData = async (reportId: string) => {
 }
 
 export const updateReportStatus = async (
-  reportId: string, 
-  status: 'pending' | 'processing' | 'completed' | 'error',
+  reportId: string,
+  status: 'pending' | 'scraping' | 'scraping_completed' | 'analyzing' | 'completing' | 'completed' | 'failed' | 'error',
   completedAt?: string
 ) => {
   const updates: any = { status }

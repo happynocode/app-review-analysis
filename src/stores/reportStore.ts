@@ -37,7 +37,7 @@ export interface Report {
   selected_app_name?: string
   enabled_platforms?: string[]
   time_filter_days?: number
-  status: 'pending' | 'processing' | 'scraping' | 'scraping_completed' | 'analyzing' | 'completed' | 'failed' | 'error'
+  status: 'pending' | 'scraping' | 'scraping_completed' | 'analyzing' | 'completing' | 'completed' | 'failed' | 'error'
   created_at: string
   completed_at: string | null
   themes?: Theme[]

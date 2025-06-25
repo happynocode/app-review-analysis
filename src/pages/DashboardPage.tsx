@@ -43,6 +43,8 @@ export const DashboardPage: React.FC = () => {
         return <Activity className="w-4 h-4 text-blue-600" />
       case 'analyzing':
         return <BarChart3 className="w-4 h-4 text-purple-400 animate-pulse" />
+      case 'completing':
+        return <CheckCircle className="w-4 h-4 text-green-500 animate-pulse" />
       case 'failed':
         return <X className="w-4 h-4 text-red-400" />
       case 'error':
@@ -64,6 +66,8 @@ export const DashboardPage: React.FC = () => {
         return 'Scraping Complete'
       case 'analyzing':
         return 'Analyzing Reviews'
+      case 'completing':
+        return 'Finalizing Report'
       case 'failed':
         if (report?.failure_stage === 'scraping') {
           return 'Scraping Failed (No Data)'
@@ -174,7 +178,9 @@ export const DashboardPage: React.FC = () => {
   }
 
   // Check if there are any processing reports to show a helpful message
-  const hasProcessingReports = reports.some(r => r.status === 'processing')
+  const hasProcessingReports = reports.some(r =>
+    r.status === 'processing' || r.status === 'scraping' || r.status === 'scraping_completed' || r.status === 'analyzing' || r.status === 'completing'
+  )
 
   if (loading) {
     return <LoadingSpinner message="Loading dashboard..." />
@@ -271,7 +277,9 @@ export const DashboardPage: React.FC = () => {
               <div>
                 <p className="text-white/60 text-sm">Processing</p>
                 <p className="text-2xl font-bold text-white">
-                  {reports.filter(r => r.status === 'processing').length}
+                  {reports.filter(r =>
+                    r.status === 'processing' || r.status === 'scraping' || r.status === 'scraping_completed' || r.status === 'analyzing' || r.status === 'completing'
+                  ).length}
                 </p>
               </div>
               <Clock className="w-8 h-8 text-yellow-400" />
@@ -407,12 +415,13 @@ export const DashboardPage: React.FC = () => {
                         View Report
                       </Button>
                     )}
-                    {(report.status === 'processing' || report.status === 'scraping' || report.status === 'scraping_completed' || report.status === 'analyzing') && (
+                    {(report.status === 'processing' || report.status === 'scraping' || report.status === 'scraping_completed' || report.status === 'analyzing' || report.status === 'completing') && (
                       <div className="text-yellow-400 text-sm flex items-center">
                         <Clock className="w-4 h-4 mr-1 animate-spin" />
-                        {report.status === 'scraping' ? 'Scraping...' : 
+                        {report.status === 'scraping' ? 'Scraping...' :
                          report.status === 'scraping_completed' ? 'Starting analysis...' :
-                         report.status === 'analyzing' ? 'Analyzing...' : 'Processing...'}
+                         report.status === 'analyzing' ? 'Analyzing...' :
+                         report.status === 'completing' ? 'Finalizing...' : 'Processing...'}
                       </div>
                     )}
                     {(report.status === 'error' || report.status === 'failed') && (

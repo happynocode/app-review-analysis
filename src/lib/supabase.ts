@@ -40,7 +40,7 @@ export type Database = {
           id: string
           user_id: string
           app_name: string
-          status: 'pending' | 'processing' | 'completed' | 'error'
+          status: 'pending' | 'scraping' | 'scraping_completed' | 'analyzing' | 'completing' | 'completed' | 'failed' | 'error'
           created_at: string
           completed_at: string | null
         }
@@ -48,7 +48,7 @@ export type Database = {
           id?: string
           user_id: string
           app_name: string
-          status?: 'pending' | 'processing' | 'completed' | 'error'
+          status?: 'pending' | 'scraping' | 'scraping_completed' | 'analyzing' | 'completing' | 'completed' | 'failed' | 'error'
           created_at?: string
           completed_at?: string | null
         }
@@ -56,7 +56,7 @@ export type Database = {
           id?: string
           user_id?: string
           app_name?: string
-          status?: 'pending' | 'processing' | 'completed' | 'error'
+          status?: 'pending' | 'scraping' | 'scraping_completed' | 'analyzing' | 'completing' | 'completed' | 'failed' | 'error'
           created_at?: string
           completed_at?: string | null
         }
