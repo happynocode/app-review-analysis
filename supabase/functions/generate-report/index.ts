@@ -111,7 +111,7 @@ Deno.serve(async (req) => {
     activeReports.add(reportId)
 
     console.log(`🚀 Starting report generation for ${appName} (${reportId})`)
-    console.log(`📱 User-provided app name: "${appName}" (will be used for Reddit search)`)
+    console.log(`📱 User-provided app name: "${userSearchTerm || appName}" (will be used for Reddit search)`)
     
     // 🆕 检查是否为仅 Reddit 分析
     if (redditOnly) {
@@ -176,9 +176,9 @@ Deno.serve(async (req) => {
 
     // 🆕 Start the scraping process with platform configuration
     EdgeRuntime.waitUntil(initiateScrapingProcess(
-      reportId, 
-      appName,
-      scrapingSession.id, 
+      reportId,
+      userSearchTerm || appName, // 优先使用用户搜索词
+      scrapingSession.id,
       userSearchTerm,
       selectedAppName,
       appInfo, 
