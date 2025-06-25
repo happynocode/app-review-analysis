@@ -368,7 +368,7 @@ VALIDATION RULES:
   return prompt
 }
 
-// Gemini模型列表，按优先级排序
+// Gemini模型列表，按优先级排序 (基于用户偏好)
 const GEMINI_MODELS = [
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite-preview-06-17',
@@ -377,163 +377,318 @@ const GEMINI_MODELS = [
   'gemini-2.0-flash-lite'
 ]
 
-// 调用Gemini API的通用函数，支持多模型回退
+// 模型失败跟踪
+const modelFailureTracker = new Map<string, { count: number, lastFailure: number }>()
+
+// 估算token数量 (粗略估算: 1 token ≈ 4 characters)
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4)
+}
+
+// 计算指数退避延迟
+function calculateBackoffDelay(attempt: number, baseDelay: number = 1000): number {
+  const delay = baseDelay * Math.pow(2, attempt)
+  const jitter = Math.random() * 0.1 * delay // 10% jitter
+  return Math.min(delay + jitter, 60000) // 最大60秒
+}
+
+// 改进的JSON清理函数
+function sanitizeJsonContent(content: string): string {
+  let cleanContent = content.trim()
+
+  // 移除markdown格式
+  if (cleanContent.startsWith('```json') && cleanContent.endsWith('```')) {
+    cleanContent = cleanContent.slice(7, -3).trim()
+  } else if (cleanContent.startsWith('```') && cleanContent.endsWith('```')) {
+    cleanContent = cleanContent.slice(3, -3).trim()
+  }
+
+  // 寻找JSON对象边界
+  const jsonStart = cleanContent.indexOf('{')
+  const jsonEnd = cleanContent.lastIndexOf('}')
+
+  if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+    cleanContent = cleanContent.slice(jsonStart, jsonEnd + 1)
+  }
+
+  // 移除前后缀文本
+  cleanContent = cleanContent.replace(/^[^{]*/, '').replace(/[^}]*$/, '')
+
+  return cleanContent
+}
+
+// 调用Gemini API的通用函数，支持多模型回退和速率限制处理
 async function callGeminiAPI(prompt: string) {
   const geminiApiKey = Deno.env.get('GEMINI_API_KEY')
 
+  if (!geminiApiKey) {
+    throw new Error('GEMINI_API_KEY environment variable is not set')
+  }
+
+  // 检查输入token数量
+  const inputTokens = estimateTokens(prompt)
+  console.log(`📊 Estimated input tokens: ${inputTokens}`)
+
+  if (inputTokens > 8000) { // 留一些余量给系统提示
+    console.warn(`⚠️ Input tokens (${inputTokens}) approaching limit, consider reducing input size`)
+  }
+
   let lastError: Error | null = null
+  let globalAttempt = 0
 
   // 按顺序尝试每个模型
   for (const model of GEMINI_MODELS) {
-    try {
-      console.log(`🤖 Trying Gemini model: ${model}`)
+    // 检查模型是否最近失败过多
+    const failureInfo = modelFailureTracker.get(model)
+    if (failureInfo && failureInfo.count >= 3 && Date.now() - failureInfo.lastFailure < 300000) { // 5分钟冷却
+      console.log(`🚫 Skipping model ${model} due to recent failures (${failureInfo.count} failures)`)
+      continue
+    }
 
-      // API call with timeout
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout
+    let modelAttempt = 0
+    const maxModelAttempts = 3
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: `You are an expert product analyst specializing in user feedback analysis. You MUST return valid JSON without markdown formatting or additional text. Only return the JSON object with themes array. Do not include any explanatory text before or after the JSON.
+    while (modelAttempt < maxModelAttempts) {
+      try {
+        console.log(`🤖 Trying Gemini model: ${model} (attempt ${modelAttempt + 1}/${maxModelAttempts})`)
+
+        // API call with timeout
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout
+
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{
+                text: `You are an expert product analyst specializing in user feedback analysis. You MUST return valid JSON without markdown formatting or additional text. Only return the JSON object with themes array. Do not include any explanatory text before or after the JSON.
+
+IMPORTANT: Return no more than 30 themes even if you receive 100-200 input themes. Focus on the most significant and distinct themes.
 
 ${prompt}`
-            }]
-          }],
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 6000,
-            topP: 0.8,
-            topK: 40
-          }
-        }),
-        signal: controller.signal
-      })
-
-      clearTimeout(timeoutId)
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        const error = new Error(`Gemini API error for model ${model}: ${response.status} - ${errorText}`)
-        console.warn(`⚠️ Model ${model} failed: ${error.message}`)
-        lastError = error
-        continue // 尝试下一个模型
-      }
-
-      const data = await response.json()
-      const content = data.candidates?.[0]?.content?.parts?.[0]?.text
-
-      if (!content) {
-        const error = new Error(`No content in Gemini response for model ${model}`)
-        console.warn(`⚠️ Model ${model} returned no content`)
-        lastError = error
-        continue // 尝试下一个模型
-      }
-
-      console.log(`✅ Successfully used model: ${model}`)
-      console.log('🔍 Raw Gemini response preview:', content.substring(0, 300) + '...')
-
-      // 改进的JSON解析逻辑
-      try {
-        let cleanContent = content.trim()
-
-        // 移除可能的markdown格式
-        if (cleanContent.startsWith('```json') && cleanContent.endsWith('```')) {
-          cleanContent = cleanContent.slice(7, -3).trim()
-        } else if (cleanContent.startsWith('```') && cleanContent.endsWith('```')) {
-          cleanContent = cleanContent.slice(3, -3).trim()
-        }
-
-        // 更aggressive地寻找JSON对象
-        const jsonStart = cleanContent.indexOf('{')
-        const jsonEnd = cleanContent.lastIndexOf('}')
-
-        if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-          cleanContent = cleanContent.slice(jsonStart, jsonEnd + 1)
-        }
-
-        // 移除可能的前后缀文本
-        cleanContent = cleanContent.replace(/^[^{]*/, '').replace(/[^}]*$/, '')
-
-        console.log('🧹 Cleaned content preview:', cleanContent.substring(0, 300) + '...')
-
-        const result = JSON.parse(cleanContent)
-
-        // 严格验证结构
-        if (result.themes && Array.isArray(result.themes) && result.themes.length > 0) {
-          // 验证每个theme的结构并过滤无效的
-          const validThemes = result.themes.filter(theme => {
-            const isValid = theme.title &&
-                           typeof theme.title === 'string' &&
-                           theme.title.trim().length > 2 &&
-                           theme.title.trim().length < 200 && // 避免过长的标题
-                           theme.description &&
-                           typeof theme.description === 'string' &&
-                           theme.description.trim().length > 10 &&
-                           // 确保是有意义的主题标题，不是单个词汇
-                           theme.title.split(' ').length >= 2 &&
-                           !theme.title.toLowerCase().match(/^(json|reddit|app|store|google|play|analysis|result|themes?|title|description|quotes|suggestions)$/i)
-
-            if (!isValid) {
-              console.warn(`🚨 Filtered invalid theme: "${theme.title}" (reason: ${
-                !theme.title ? 'no title' :
-                typeof theme.title !== 'string' ? 'title not string' :
-                theme.title.trim().length <= 2 ? 'title too short' :
-                theme.title.trim().length >= 200 ? 'title too long' :
-                !theme.description ? 'no description' :
-                typeof theme.description !== 'string' ? 'description not string' :
-                theme.description.trim().length <= 10 ? 'description too short' :
-                theme.title.split(' ').length < 2 ? 'single word title' :
-                'matches blacklisted words'
-              })`)
+              }]
+            }],
+            generationConfig: {
+              temperature: 0.1,
+              maxOutputTokens: 4000, // 减少输出token以避免超限
+              topP: 0.8,
+              topK: 40
             }
-            return isValid
+          }),
+          signal: controller.signal
+        })
+
+        clearTimeout(timeoutId)
+
+        // 处理速率限制错误
+        if (response.status === 429) {
+          const errorText = await response.text()
+          console.warn(`⚠️ Rate limit hit for model ${model}: ${errorText}`)
+
+          // 尝试从错误响应中提取重试延迟
+          let retryDelay = 7000 // 默认7秒
+          try {
+            const errorData = JSON.parse(errorText)
+            if (errorData.error?.details) {
+              const retryInfo = errorData.error.details.find(d => d['@type']?.includes('RetryInfo'))
+              if (retryInfo?.retryDelay) {
+                const delayMatch = retryInfo.retryDelay.match(/(\d+)s/)
+                if (delayMatch) {
+                  retryDelay = parseInt(delayMatch[1]) * 1000
+                }
+              }
+            }
+          } catch (e) {
+            // 忽略解析错误，使用默认延迟
+          }
+
+          // 计算退避延迟
+          const backoffDelay = calculateBackoffDelay(globalAttempt, retryDelay)
+          console.log(`⏳ Waiting ${backoffDelay}ms before retry...`)
+
+          await new Promise(resolve => setTimeout(resolve, backoffDelay))
+          modelAttempt++
+          globalAttempt++
+          continue
+        }
+
+        if (!response.ok) {
+          const errorText = await response.text()
+          const error = new Error(`Gemini API error for model ${model}: ${response.status} - ${errorText}`)
+          console.warn(`⚠️ Model ${model} failed: ${error.message}`)
+
+          // 记录模型失败
+          const currentFailures = modelFailureTracker.get(model) || { count: 0, lastFailure: 0 }
+          modelFailureTracker.set(model, {
+            count: currentFailures.count + 1,
+            lastFailure: Date.now()
           })
 
-          if (validThemes.length > 0) {
-            console.log(`✅ Successfully parsed ${validThemes.length} valid themes with model ${model}`)
-            return { themes: validThemes }
-          } else {
-            console.warn(`⚠️ No valid themes found after filtering for model ${model}`)
-          }
+          lastError = error
+          break // 尝试下一个模型
         }
 
-        const error = new Error(`Invalid or empty themes structure in response for model ${model}`)
-        console.warn(`⚠️ Model ${model} returned invalid structure`)
-        lastError = error
-        continue // 尝试下一个模型
+        const data = await response.json()
+        const content = data.candidates?.[0]?.content?.parts?.[0]?.text
 
-      } catch (parseError) {
-        console.error(`❌ JSON parsing failed for model ${model}:`, parseError.message)
-        console.log('🔍 Full problematic content:', content)
+        if (!content) {
+          const error = new Error(`No content in Gemini response for model ${model}`)
+          console.warn(`⚠️ Model ${model} returned no content`)
+          lastError = error
+          break // 尝试下一个模型
+        }
 
-        const error = new Error(`Gemini model ${model} returned invalid JSON format: ${parseError.message}. Content preview: ${content.substring(0, 200)}...`)
+        console.log(`✅ Successfully used model: ${model}`)
+        console.log('🔍 Raw Gemini response preview:', content.substring(0, 300) + '...')
+
+        // 重置模型失败计数器（成功获得响应）
+        modelFailureTracker.delete(model)
+
+        // 改进的JSON解析逻辑
+        try {
+          const cleanContent = sanitizeJsonContent(content)
+          console.log('🧹 Cleaned content preview:', cleanContent.substring(0, 300) + '...')
+
+          let result
+          try {
+            result = JSON.parse(cleanContent)
+          } catch (firstParseError) {
+            // 如果第一次解析失败，尝试更激进的清理
+            console.warn('🔧 First JSON parse failed, trying aggressive cleanup...')
+
+            let aggressiveClean = content.trim()
+
+            // 寻找最可能的JSON边界
+            const possibleStarts = ['{', '[']
+            const possibleEnds = ['}', ']']
+
+            let bestStart = -1, bestEnd = -1
+
+            for (const startChar of possibleStarts) {
+              const start = aggressiveClean.indexOf(startChar)
+              if (start !== -1) {
+                const endChar = startChar === '{' ? '}' : ']'
+                const end = aggressiveClean.lastIndexOf(endChar)
+                if (end > start) {
+                  bestStart = start
+                  bestEnd = end
+                  break
+                }
+              }
+            }
+
+            if (bestStart !== -1 && bestEnd !== -1) {
+              aggressiveClean = aggressiveClean.slice(bestStart, bestEnd + 1)
+
+              // 修复常见的JSON问题
+              aggressiveClean = aggressiveClean
+                .replace(/,(\s*[}\]])/g, '$1') // 移除尾随逗号
+                .replace(/([{,]\s*)(\w+):/g, '$1"$2":') // 为属性名添加引号
+                .replace(/:\s*'([^']*)'/g, ': "$1"') // 将单引号改为双引号
+                .replace(/\\'/g, "'") // 修复转义的单引号
+
+              result = JSON.parse(aggressiveClean)
+            } else {
+              throw firstParseError
+            }
+          }
+
+          // 严格验证结构
+          if (result.themes && Array.isArray(result.themes) && result.themes.length > 0) {
+            // 验证每个theme的结构并过滤无效的
+            const validThemes = result.themes.filter(theme => {
+              const isValid = theme.title &&
+                             typeof theme.title === 'string' &&
+                             theme.title.trim().length > 2 &&
+                             theme.title.trim().length < 200 && // 避免过长的标题
+                             theme.description &&
+                             typeof theme.description === 'string' &&
+                             theme.description.trim().length > 10 &&
+                             // 确保是有意义的主题标题，不是单个词汇
+                             theme.title.split(' ').length >= 2 &&
+                             !theme.title.toLowerCase().match(/^(json|reddit|app|store|google|play|analysis|result|themes?|title|description|quotes|suggestions)$/i)
+
+              if (!isValid) {
+                console.warn(`🚨 Filtered invalid theme: "${theme.title}" (reason: ${
+                  !theme.title ? 'no title' :
+                  typeof theme.title !== 'string' ? 'title not string' :
+                  theme.title.trim().length <= 2 ? 'title too short' :
+                  theme.title.trim().length >= 200 ? 'title too long' :
+                  !theme.description ? 'no description' :
+                  typeof theme.description !== 'string' ? 'description not string' :
+                  theme.description.trim().length <= 10 ? 'description too short' :
+                  theme.title.split(' ').length < 2 ? 'single word title' :
+                  'matches blacklisted words'
+                })`)
+              }
+              return isValid
+            })
+
+            // 限制输出主题数量（用户偏好：不超过30个主题）
+            const limitedThemes = validThemes.slice(0, 30)
+
+            if (limitedThemes.length > 0) {
+              console.log(`✅ Successfully parsed ${limitedThemes.length} valid themes with model ${model} (filtered from ${result.themes.length} total)`)
+              return { themes: limitedThemes }
+            } else {
+              console.warn(`⚠️ No valid themes found after filtering for model ${model}`)
+            }
+          }
+
+          const error = new Error(`Invalid or empty themes structure in response for model ${model}`)
+          console.warn(`⚠️ Model ${model} returned invalid structure`)
+          lastError = error
+          break // 尝试下一个模型
+
+        } catch (parseError) {
+          console.error(`❌ JSON parsing failed for model ${model}:`, parseError.message)
+          console.log('🔍 Full problematic content (first 500 chars):', content.substring(0, 500))
+
+          const error = new Error(`Gemini model ${model} returned invalid JSON format: ${parseError.message}. Content preview: ${content.substring(0, 200)}...`)
+          lastError = error
+          break // 尝试下一个模型
+        }
+
+      } catch (error) {
+        clearTimeout(timeoutId)
+        if (error.name === 'AbortError') {
+          const timeoutError = new Error(`Model ${model} timed out after 2 minutes`)
+          console.warn(`⚠️ ${timeoutError.message}`)
+          lastError = timeoutError
+          break // 尝试下一个模型
+        }
+
+        console.warn(`⚠️ Model ${model} failed with error:`, error.message)
+
+        // 记录模型失败
+        const currentFailures = modelFailureTracker.get(model) || { count: 0, lastFailure: 0 }
+        modelFailureTracker.set(model, {
+          count: currentFailures.count + 1,
+          lastFailure: Date.now()
+        })
+
         lastError = error
-        continue // 尝试下一个模型
+        break // 尝试下一个模型
       }
 
-    } catch (error) {
-      clearTimeout(timeoutId)
-      if (error.name === 'AbortError') {
-        const timeoutError = new Error(`Model ${model} timed out after 2 minutes`)
-        console.warn(`⚠️ ${timeoutError.message}`)
-        lastError = timeoutError
-        continue // 尝试下一个模型
+      modelAttempt++
+      if (modelAttempt < maxModelAttempts) {
+        const delay = calculateBackoffDelay(modelAttempt - 1, 1000)
+        console.log(`⏳ Retrying model ${model} in ${delay}ms...`)
+        await new Promise(resolve => setTimeout(resolve, delay))
       }
-
-      console.warn(`⚠️ Model ${model} failed with error:`, error.message)
-      lastError = error
-      continue // 尝试下一个模型
     }
   }
 
-  // 如果所有模型都失败了，抛出最后一个错误
-  throw new Error(`All Gemini models failed. Last error: ${lastError?.message || 'Unknown error'}`)
+  // 如果所有模型都失败了，提供更详细的错误信息
+  const failureReport = Array.from(modelFailureTracker.entries())
+    .map(([model, info]) => `${model}: ${info.count} failures`)
+    .join(', ')
+
+  throw new Error(`All Gemini models failed after multiple attempts. Model failures: ${failureReport}. Last error: ${lastError?.message || 'Unknown error'}`)
 }
 
 
