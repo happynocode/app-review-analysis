@@ -166,7 +166,7 @@ export const LandingPage: React.FC = () => {
             className="flex items-center space-x-2"
           >
             <BarChart3 className="w-8 h-8 text-[#2DD4BF]" />
-            <span className="text-xl font-bold text-white">ReviewInsight</span>
+            <span className="text-xl font-bold text-white">FeedbackLens</span>
           </motion.div>
           
           <motion.div
@@ -287,7 +287,7 @@ export const LandingPage: React.FC = () => {
             className="text-center mb-16"
           >
             <h2 className="text-4xl font-bold text-white mb-4">
-              Why Choose ReviewInsight?
+              Why Choose FeedbackLens?
             </h2>
             <p className="text-xl text-white/70 max-w-2xl mx-auto">
               Powerful features designed for product managers, researchers, and analysts
@@ -330,7 +330,7 @@ export const LandingPage: React.FC = () => {
                 Ready to Get Started?
               </h2>
               <p className="text-white/70 mb-8 text-lg">
-                Join thousands of product teams using ReviewInsight to make data-driven decisions
+                Join thousands of product teams using FeedbackLens to make data-driven decisions
               </p>
               <Button
                 size="lg"
@@ -349,7 +349,7 @@ export const LandingPage: React.FC = () => {
       {/* Footer */}
       <footer className="border-t border-white/10 py-8 px-6">
         <div className="max-w-6xl mx-auto text-center text-white/60">
-          <p>&copy; 2025 ReviewInsight. All rights reserved.</p>
+          <p>&copy; 2025 FeedbackLens. All rights reserved.</p>
         </div>
       </footer>
 

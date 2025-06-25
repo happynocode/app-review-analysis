@@ -1,10 +1,10 @@
-# 🚀 ReviewInsight - AI-Powered App Review Analysis Platform
+# 🚀 FeedbackLens - AI-Powered App Review Analysis Platform
 
 > Intelligent app review analysis platform that leverages AI technology to deeply analyze multi-platform user reviews and generate insightful reports quickly
 
 ## 📋 Project Overview
 
-**ReviewInsight** is an AI-powered app review analysis platform that automatically scrapes and analyzes user reviews from multiple platforms (App Store, Google Play, Reddit). It utilizes advanced natural language processing technology to extract key insights and generate professional analysis reports.
+**FeedbackLens** is an AI-powered app review analysis platform that automatically scrapes and analyzes user reviews from multiple platforms (App Store, Google Play, Reddit). It utilizes advanced natural language processing technology to extract key insights and generate professional analysis reports.
 
 ### 🎯 Core Features
 
@@ -229,6 +229,6 @@ This project is licensed under the [MIT License](LICENSE).
 ---
 
 <div align="center">
-  <p>Made with ❤️ by ReviewInsight Team</p>
+  <p>Made with ❤️ by FeedbackLens Team</p>
   <p>⭐ If this project helps you, please give us a star!</p>
-</div> 
+</div>
