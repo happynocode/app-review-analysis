@@ -358,7 +358,7 @@ REQUIRED JSON FORMAT:
 }
 
 VALIDATION RULES:
-- Return 20-50 themes based on data quality and diversity
+- Return 20-30 themes based on data quality and diversity
 - Each theme title must be 2+ words (not single words like "json", "reddit")
 - Ensure each theme has 2-3 representative quotes from actual reviews
 - Make suggestions specific and actionable, not generic advice
