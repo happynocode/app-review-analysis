@@ -91,11 +91,6 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
-      - name: Deploy update-scraper-status function
-        run: supabase functions deploy update-scraper-status --no-verify-jwt
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-
       - name: Deployment Status
         if: success()
         run: echo "✅ All Supabase Edge Functions deployed successfully!"
