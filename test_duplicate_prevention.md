@@ -43,7 +43,7 @@ supabase functions deploy cron-batch-processor --no-verify-jwt
 ## 预期效果
 
 1. **消除重复执行**：同一个报告不会被多次处理
-2. **减少资源浪费**：避免重复的 DeepSeek API 调用
+2. **减少资源浪费**：避免重复的 Gemini API 调用
 3. **提高系统稳定性**：减少并发冲突和数据不一致
 4. **更清晰的日志**：能够识别和记录重复处理尝试
 

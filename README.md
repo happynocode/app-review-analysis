@@ -30,7 +30,7 @@
 - ⏰ Cron Job System
 
 **AI & Data Processing**
-- 🤖 OpenAI GPT-4 API
+- 🤖 Google Gemini API
 - 📝 Intelligent Theme Extraction
 - 🎯 Sentiment Analysis
 - 📊 Data Visualization

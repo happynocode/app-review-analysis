@@ -162,11 +162,11 @@ async function processAnalysisTaskV2(task: any, supabaseClient: any) {
       throw new Error('Failed to fetch report information')
     }
 
-    // Perform themes analysis with DeepSeek
-    console.log(`🧠 Analyzing themes for batch ${task.batch_index} with DeepSeek...`)
-    const analysisResult = await analyzeThemesWithDeepSeek(
-      report.app_name, 
-      task.reviews_data, 
+    // Perform themes analysis with Gemini
+    console.log(`🧠 Analyzing themes for batch ${task.batch_index} with Gemini...`)
+    const analysisResult = await analyzeThemesWithGemini(
+      report.app_name,
+      task.reviews_data,
       task.batch_index
     )
 
@@ -219,11 +219,11 @@ async function processAnalysisTaskV2(task: any, supabaseClient: any) {
 }
 
 // 简化的themes分析函数
-async function analyzeThemesWithDeepSeek(appName: string, reviews: any[], batchIndex: number) {
-  const deepseekApiKey = Deno.env.get('DEEPSEEK_API_KEY')
-  
-  if (!deepseekApiKey) {
-    throw new Error('DEEPSEEK_API_KEY environment variable is not set')
+async function analyzeThemesWithGemini(appName: string, reviews: any[], batchIndex: number) {
+  const geminiApiKey = Deno.env.get('GEMINI_API_KEY')
+
+  if (!geminiApiKey) {
+    throw new Error('GEMINI_API_KEY environment variable is not set')
   }
 
   // 按平台分组评论
@@ -266,7 +266,7 @@ async function analyzeThemesWithDeepSeek(appName: string, reviews: any[], batchI
     const platformSpecificPrompt = getPlatformSpecificPrompt(platform, appName, reviewTexts)
 
     try {
-      const themes = await callDeepSeekAPI(platformSpecificPrompt)
+      const themes = await callGeminiAPI(platformSpecificPrompt)
       
       // 为每个theme添加平台标识
       const themesWithPlatform = themes.themes.map(theme => ({
@@ -368,139 +368,175 @@ VALIDATION RULES:
   return prompt
 }
 
-// 调用DeepSeek API的通用函数
-async function callDeepSeekAPI(prompt: string) {
-  const deepseekApiKey = Deno.env.get('DEEPSEEK_API_KEY')
-  
-  // API call with timeout
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout
+// Gemini模型列表，按优先级排序
+const GEMINI_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite-preview-06-17',
+  'gemini-2.5-flash-preview-tts',
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite'
+]
 
-  try {
-    const response = await fetch('https://api.deepseek.com/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${deepseekApiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert product analyst specializing in user feedback analysis. You MUST return valid JSON without markdown formatting or additional text. Only return the JSON object with themes array. Do not include any explanatory text before or after the JSON.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        stream: false,
-        max_tokens: 6000,
-        temperature: 0.1, // 大幅降低温度以提高JSON格式的一致性
-      }),
-      signal: controller.signal
-    })
+// 调用Gemini API的通用函数，支持多模型回退
+async function callGeminiAPI(prompt: string) {
+  const geminiApiKey = Deno.env.get('GEMINI_API_KEY')
 
-    clearTimeout(timeoutId)
+  let lastError: Error | null = null
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(`DeepSeek API error: ${response.status} - ${errorText}`)
-    }
-
-    const data = await response.json()
-    const content = data.choices?.[0]?.message?.content
-
-    if (!content) {
-      throw new Error('No content in DeepSeek response')
-    }
-
-    console.log('🔍 Raw DeepSeek response preview:', content.substring(0, 300) + '...')
-
-    // 改进的JSON解析逻辑
+  // 按顺序尝试每个模型
+  for (const model of GEMINI_MODELS) {
     try {
-      let cleanContent = content.trim()
-      
-      // 移除可能的markdown格式
-      if (cleanContent.startsWith('```json') && cleanContent.endsWith('```')) {
-        cleanContent = cleanContent.slice(7, -3).trim()
-      } else if (cleanContent.startsWith('```') && cleanContent.endsWith('```')) {
-        cleanContent = cleanContent.slice(3, -3).trim()
-      }
-      
-      // 更aggressive地寻找JSON对象
-      const jsonStart = cleanContent.indexOf('{')
-      const jsonEnd = cleanContent.lastIndexOf('}')
-      
-      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-        cleanContent = cleanContent.slice(jsonStart, jsonEnd + 1)
-      }
-      
-      // 移除可能的前后缀文本
-      cleanContent = cleanContent.replace(/^[^{]*/, '').replace(/[^}]*$/, '')
-      
-      console.log('🧹 Cleaned content preview:', cleanContent.substring(0, 300) + '...')
-      
-      const result = JSON.parse(cleanContent)
-      
-      // 严格验证结构
-      if (result.themes && Array.isArray(result.themes) && result.themes.length > 0) {
-        // 验证每个theme的结构并过滤无效的
-        const validThemes = result.themes.filter(theme => {
-          const isValid = theme.title && 
-                         typeof theme.title === 'string' && 
-                         theme.title.trim().length > 2 && 
-                         theme.title.trim().length < 200 && // 避免过长的标题
-                         theme.description && 
-                         typeof theme.description === 'string' &&
-                         theme.description.trim().length > 10 &&
-                         // 确保是有意义的主题标题，不是单个词汇
-                         theme.title.split(' ').length >= 2 &&
-                         !theme.title.toLowerCase().match(/^(json|reddit|app|store|google|play|analysis|result|themes?|title|description|quotes|suggestions)$/i)
-          
-          if (!isValid) {
-            console.warn(`🚨 Filtered invalid theme: "${theme.title}" (reason: ${
-              !theme.title ? 'no title' :
-              typeof theme.title !== 'string' ? 'title not string' :
-              theme.title.trim().length <= 2 ? 'title too short' :
-              theme.title.trim().length >= 200 ? 'title too long' :
-              !theme.description ? 'no description' :
-              typeof theme.description !== 'string' ? 'description not string' :
-              theme.description.trim().length <= 10 ? 'description too short' :
-              theme.title.split(' ').length < 2 ? 'single word title' :
-              'matches blacklisted words'
-            })`)
-          }
-          return isValid
-        })
-        
-        if (validThemes.length > 0) {
-          console.log(`✅ Successfully parsed ${validThemes.length} valid themes`)
-          return { themes: validThemes }
-        } else {
-          console.warn('⚠️ No valid themes found after filtering')
-        }
-      }
-      
-      throw new Error('Invalid or empty themes structure in response')
-      
-    } catch (parseError) {
-      console.error('❌ JSON parsing failed:', parseError.message)
-      console.log('🔍 Full problematic content:', content)
-      
-      // 不再使用有问题的extractThemesFromText，直接抛出错误
-      throw new Error(`DeepSeek returned invalid JSON format: ${parseError.message}. Please check the API response format. Content preview: ${content.substring(0, 200)}...`)
-    }
+      console.log(`🤖 Trying Gemini model: ${model}`)
 
-  } catch (error) {
-    clearTimeout(timeoutId)
-    if (error.name === 'AbortError') {
-      throw new Error(`Themes analysis timed out after 2 minutes`)
+      // API call with timeout
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: `You are an expert product analyst specializing in user feedback analysis. You MUST return valid JSON without markdown formatting or additional text. Only return the JSON object with themes array. Do not include any explanatory text before or after the JSON.
+
+${prompt}`
+            }]
+          }],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 6000,
+            topP: 0.8,
+            topK: 40
+          }
+        }),
+        signal: controller.signal
+      })
+
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        const error = new Error(`Gemini API error for model ${model}: ${response.status} - ${errorText}`)
+        console.warn(`⚠️ Model ${model} failed: ${error.message}`)
+        lastError = error
+        continue // 尝试下一个模型
+      }
+
+      const data = await response.json()
+      const content = data.candidates?.[0]?.content?.parts?.[0]?.text
+
+      if (!content) {
+        const error = new Error(`No content in Gemini response for model ${model}`)
+        console.warn(`⚠️ Model ${model} returned no content`)
+        lastError = error
+        continue // 尝试下一个模型
+      }
+
+      console.log(`✅ Successfully used model: ${model}`)
+      console.log('🔍 Raw Gemini response preview:', content.substring(0, 300) + '...')
+
+      // 改进的JSON解析逻辑
+      try {
+        let cleanContent = content.trim()
+
+        // 移除可能的markdown格式
+        if (cleanContent.startsWith('```json') && cleanContent.endsWith('```')) {
+          cleanContent = cleanContent.slice(7, -3).trim()
+        } else if (cleanContent.startsWith('```') && cleanContent.endsWith('```')) {
+          cleanContent = cleanContent.slice(3, -3).trim()
+        }
+
+        // 更aggressive地寻找JSON对象
+        const jsonStart = cleanContent.indexOf('{')
+        const jsonEnd = cleanContent.lastIndexOf('}')
+
+        if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+          cleanContent = cleanContent.slice(jsonStart, jsonEnd + 1)
+        }
+
+        // 移除可能的前后缀文本
+        cleanContent = cleanContent.replace(/^[^{]*/, '').replace(/[^}]*$/, '')
+
+        console.log('🧹 Cleaned content preview:', cleanContent.substring(0, 300) + '...')
+
+        const result = JSON.parse(cleanContent)
+
+        // 严格验证结构
+        if (result.themes && Array.isArray(result.themes) && result.themes.length > 0) {
+          // 验证每个theme的结构并过滤无效的
+          const validThemes = result.themes.filter(theme => {
+            const isValid = theme.title &&
+                           typeof theme.title === 'string' &&
+                           theme.title.trim().length > 2 &&
+                           theme.title.trim().length < 200 && // 避免过长的标题
+                           theme.description &&
+                           typeof theme.description === 'string' &&
+                           theme.description.trim().length > 10 &&
+                           // 确保是有意义的主题标题，不是单个词汇
+                           theme.title.split(' ').length >= 2 &&
+                           !theme.title.toLowerCase().match(/^(json|reddit|app|store|google|play|analysis|result|themes?|title|description|quotes|suggestions)$/i)
+
+            if (!isValid) {
+              console.warn(`🚨 Filtered invalid theme: "${theme.title}" (reason: ${
+                !theme.title ? 'no title' :
+                typeof theme.title !== 'string' ? 'title not string' :
+                theme.title.trim().length <= 2 ? 'title too short' :
+                theme.title.trim().length >= 200 ? 'title too long' :
+                !theme.description ? 'no description' :
+                typeof theme.description !== 'string' ? 'description not string' :
+                theme.description.trim().length <= 10 ? 'description too short' :
+                theme.title.split(' ').length < 2 ? 'single word title' :
+                'matches blacklisted words'
+              })`)
+            }
+            return isValid
+          })
+
+          if (validThemes.length > 0) {
+            console.log(`✅ Successfully parsed ${validThemes.length} valid themes with model ${model}`)
+            return { themes: validThemes }
+          } else {
+            console.warn(`⚠️ No valid themes found after filtering for model ${model}`)
+          }
+        }
+
+        const error = new Error(`Invalid or empty themes structure in response for model ${model}`)
+        console.warn(`⚠️ Model ${model} returned invalid structure`)
+        lastError = error
+        continue // 尝试下一个模型
+
+      } catch (parseError) {
+        console.error(`❌ JSON parsing failed for model ${model}:`, parseError.message)
+        console.log('🔍 Full problematic content:', content)
+
+        const error = new Error(`Gemini model ${model} returned invalid JSON format: ${parseError.message}. Content preview: ${content.substring(0, 200)}...`)
+        lastError = error
+        continue // 尝试下一个模型
+      }
+
+    } catch (error) {
+      clearTimeout(timeoutId)
+      if (error.name === 'AbortError') {
+        const timeoutError = new Error(`Model ${model} timed out after 2 minutes`)
+        console.warn(`⚠️ ${timeoutError.message}`)
+        lastError = timeoutError
+        continue // 尝试下一个模型
+      }
+
+      console.warn(`⚠️ Model ${model} failed with error:`, error.message)
+      lastError = error
+      continue // 尝试下一个模型
     }
-    throw error
   }
+
+  // 如果所有模型都失败了，抛出最后一个错误
+  throw new Error(`All Gemini models failed. Last error: ${lastError?.message || 'Unknown error'}`)
 }
+
+
 
 // 移除了有问题的extractThemesFromText函数
 // 这个函数会把"json"、"Reddit"等单词错误识别为主题标题
