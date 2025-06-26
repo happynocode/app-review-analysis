@@ -61,12 +61,14 @@ export const AppSelectionModal: React.FC<AppSelectionModalProps> = ({
   const searchApps = async () => {
     setLoading(true)
     setError('')
-    
+
     try {
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/search-apps`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
         },
         body: JSON.stringify({ companyName })
       })
