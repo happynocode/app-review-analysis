@@ -1,6 +1,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
+
 interface ScrapingMonitorResult {
   checked_reports: number;
   completed_reports: number;
@@ -22,8 +28,12 @@ const MIN_REVIEWS_THRESHOLD = 50; // 最小评论数量阈值
 const MAX_WAIT_TIME_MINUTES = 15; // 最大等待时间（分钟）
 
 Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders })
+  }
+
   const startTime = Date.now();
-  
+
   try {
     // 初始化Supabase客户端
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -78,7 +88,7 @@ Deno.serve(async (req: Request) => {
         message: '没有正在抓取的报告',
         result
       }), {
-        headers: { 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
@@ -191,7 +201,7 @@ Deno.serve(async (req: Request) => {
       message: '抓取监控执行完成',
       result
     }), {
-      headers: { 'Content-Type': 'application/json' }
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
 
   } catch (error: any) {
@@ -203,7 +213,7 @@ Deno.serve(async (req: Request) => {
       execution_time: Date.now() - startTime
     }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
 });

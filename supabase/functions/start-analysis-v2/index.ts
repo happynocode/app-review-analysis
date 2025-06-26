@@ -23,6 +23,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
+
 // 智能筛选算法（基于Reddit的质量评分系统）
 function applyIntelligentFiltering(reviews: any[], appName: string, timeFilterDays: number = 90, maxTotal: number = 2000): { 
   filteredReviews: any[], 
@@ -278,6 +284,10 @@ interface AnalysisResult {
 const ANALYSIS_TYPES = ['themes'];
 
 Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders })
+  }
+
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -291,7 +301,7 @@ Deno.serve(async (req: Request) => {
         error: 'reportId is required'
       }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
@@ -310,7 +320,7 @@ Deno.serve(async (req: Request) => {
         error: '报告不存在或无法访问'
       }), {
         status: 404,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
@@ -320,7 +330,7 @@ Deno.serve(async (req: Request) => {
         error: '报告状态不正确，必须完成抓取后才能开始分析'
       }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
@@ -337,7 +347,7 @@ Deno.serve(async (req: Request) => {
         error: '没有找到对应的抓取会话'
       }), {
         status: 404,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
@@ -436,13 +446,13 @@ Deno.serve(async (req: Request) => {
         details: {
           totalScrapedReviews: allReviews.length,
           filteredReviews: filteredReviews?.length || 0,
-          suggestion: allReviews.length === 0 
-            ? '抓取过程中没有找到相关评论，请尝试使用不同的应用名称或关键词' 
+          suggestion: allReviews.length === 0
+            ? '抓取过程中没有找到相关评论，请尝试使用不同的应用名称或关键词'
             : '抓取到的评论在质量筛选后被过滤掉了，请尝试使用更通用的应用名称'
         }
       }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
@@ -541,7 +551,7 @@ Deno.serve(async (req: Request) => {
           processingNote: 'cron-batch-processor将在1分钟内开始处理任务'
         }
       }), {
-        headers: { 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     } else {
       // 如果没有任务可处理，直接将报告状态改为completed
@@ -566,7 +576,7 @@ Deno.serve(async (req: Request) => {
           reviewCount: filteredReviews.length
         }
       }), {
-        headers: { 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
@@ -578,7 +588,7 @@ Deno.serve(async (req: Request) => {
       error: error.message
     }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
 });
