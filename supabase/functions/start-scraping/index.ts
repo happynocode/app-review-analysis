@@ -322,6 +322,13 @@ async function performRedditOnlyScraping(appName: string, scrapingSessionId: str
 
 // Scrape multiple selected apps
 async function scrapeMultipleApps(selectedApps: any[], scrapingSessionId: string, redditSearchName?: string, enabledPlatforms?: string[]) {
+  console.log(`🔍 === SCRAPE MULTIPLE APPS DEBUG ===`)
+  console.log(`📱 selectedApps length: ${selectedApps?.length || 0}`)
+  console.log(`📱 selectedApps content:`, JSON.stringify(selectedApps, null, 2))
+  console.log(`🎯 redditSearchName: "${redditSearchName}"`)
+  console.log(`⚙️ enabledPlatforms:`, enabledPlatforms)
+  console.log(`🆔 scrapingSessionId: ${scrapingSessionId}`)
+
   const allData = {
     appStore: [],
     googlePlay: [],
@@ -329,26 +336,39 @@ async function scrapeMultipleApps(selectedApps: any[], scrapingSessionId: string
     totalReviews: 0
   }
 
+  if (!selectedApps || selectedApps.length === 0) {
+    console.error(`❌ selectedApps is empty or null!`)
+    return allData
+  }
+
   for (const app of selectedApps) {
-    console.log(`Scraping app: ${app.name} (${app.platform})`)
-    
+    console.log(`\n🔄 Processing app: ${app.name} (platform: ${app.platform})`)
+    console.log(`📋 App details:`, JSON.stringify(app, null, 2))
+
     try {
       if (app.platform === 'ios') {
+        console.log(`🍎 Calling scrapeSpecificIOSApp for ${app.name}`)
         const appStoreData = await scrapeSpecificIOSApp(app, scrapingSessionId)
+        console.log(`🍎 scrapeSpecificIOSApp returned ${appStoreData?.length || 0} reviews`)
         allData.appStore.push(...appStoreData)
       } else if (app.platform === 'android') {
+        console.log(`🤖 Calling scrapeSpecificAndroidApp for ${app.name}`)
         const googlePlayData = await scrapeSpecificAndroidApp(app, scrapingSessionId)
+        console.log(`🤖 scrapeSpecificAndroidApp returned ${googlePlayData?.length || 0} reviews`)
         allData.googlePlay.push(...googlePlayData)
+      } else {
+        console.warn(`⚠️ Unknown platform for app ${app.name}: ${app.platform}`)
       }
 
       // 🔑 Reddit 搜索使用用户提供的名称
       const searchName = redditSearchName || app.name
       console.log(`🎯 Reddit search for app ${app.name} using name: "${searchName}"`)
       const redditData = await scrapeRedditForApp(searchName, scrapingSessionId)
+      console.log(`🎯 Reddit search returned ${redditData?.length || 0} posts`)
       allData.reddit.push(...redditData)
 
     } catch (error) {
-      console.error(`Error scraping app ${app.name}:`, error)
+      console.error(`❌ Error scraping app ${app.name}:`, error)
     }
   }
 
@@ -393,55 +413,81 @@ async function scrapeGeneralSearch(appName: string, scrapingSessionId: string, r
 
 // Scrape specific iOS app
 async function scrapeSpecificIOSApp(appInfo: any, scrapingSessionId: string) {
+  console.log(`🍎 === SCRAPE SPECIFIC iOS APP DEBUG ===`)
+  console.log(`📱 App Info:`, JSON.stringify(appInfo, null, 2))
+  console.log(`🆔 Scraping Session ID: ${scrapingSessionId}`)
+
   try {
+    const requestBody = {
+      appName: appInfo.name,
+      appId: appInfo.id,
+      scrapingSessionId
+    }
+    console.log(`📤 Request body:`, JSON.stringify(requestBody, null, 2))
+
     const response = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/scrape-app-store`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`
       },
-      body: JSON.stringify({
-        appName: appInfo.name,
-        appId: appInfo.id,
-        scrapingSessionId
-      })
+      body: JSON.stringify(requestBody)
     })
+
+    console.log(`📥 Response status: ${response.status}`)
 
     if (response.ok) {
       const data = await response.json()
+      console.log(`✅ scrape-app-store success: ${data.reviews?.length || 0} reviews`)
       return data.reviews || []
+    } else {
+      const errorText = await response.text()
+      console.error(`❌ scrape-app-store failed: ${response.status} - ${errorText}`)
     }
   } catch (error) {
-    console.error('Error scraping specific iOS app:', error)
+    console.error('❌ Error scraping specific iOS app:', error)
   }
-  
+
   return []
 }
 
 // Scrape specific Android app
 async function scrapeSpecificAndroidApp(appInfo: any, scrapingSessionId: string) {
+  console.log(`🤖 === SCRAPE SPECIFIC ANDROID APP DEBUG ===`)
+  console.log(`📱 App Info:`, JSON.stringify(appInfo, null, 2))
+  console.log(`🆔 Scraping Session ID: ${scrapingSessionId}`)
+
   try {
+    const requestBody = {
+      appName: appInfo.name,
+      packageName: appInfo.packageId,
+      scrapingSessionId
+    }
+    console.log(`📤 Request body:`, JSON.stringify(requestBody, null, 2))
+
     const response = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/scrape-google-play`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`
       },
-      body: JSON.stringify({
-        appName: appInfo.name,
-        packageName: appInfo.packageId,
-        scrapingSessionId
-      })
+      body: JSON.stringify(requestBody)
     })
+
+    console.log(`📥 Response status: ${response.status}`)
 
     if (response.ok) {
       const data = await response.json()
+      console.log(`✅ scrape-google-play success: ${data.reviews?.length || 0} reviews`)
       return data.reviews || []
+    } else {
+      const errorText = await response.text()
+      console.error(`❌ scrape-google-play failed: ${response.status} - ${errorText}`)
     }
   } catch (error) {
-    console.error('Error scraping specific Android app:', error)
+    console.error('❌ Error scraping specific Android app:', error)
   }
-  
+
   return []
 }
 
@@ -542,38 +588,80 @@ function startParallelScraping(appName: string, scrapingSessionId: string, reddi
 
   // Google Play Promise (只在启用时创建)
   if (isGooglePlayEnabled) {
-    const googlePlayRequestBody = JSON.stringify({ appName, scrapingSessionId })
-    const googlePlayPromise = fetch(`${baseUrl}/functions/v1/scrape-google-play`, {
-      method: 'POST',
-      headers,
-      body: googlePlayRequestBody
-    }).then(async (response) => {
+    // 🆕 首先搜索应用获取packageName
+    const googlePlayPromise = (async () => {
       const result = { platform: 'google_play', success: false, data: null, error: null }
+
       try {
-        if (response.ok) {
-          result.data = await response.json()
+        console.log(`🔍 Searching for Google Play app: "${appName}"`)
+
+        // 调用search-apps获取packageName
+        const searchResponse = await fetch(`${baseUrl}/functions/v1/search-apps`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            companyName: appName,
+            platforms: ['google_play']
+          })
+        })
+
+        if (!searchResponse.ok) {
+          throw new Error(`App search failed: ${searchResponse.status}`)
+        }
+
+        const searchData = await searchResponse.json()
+        const googlePlayApps = searchData.apps?.google_play || []
+
+        if (googlePlayApps.length === 0) {
+          throw new Error(`No Google Play apps found for "${appName}"`)
+        }
+
+        // 使用第一个找到的应用
+        const selectedApp = googlePlayApps[0]
+        const packageName = selectedApp.packageId
+
+        console.log(`✅ Found Google Play app: ${selectedApp.name} (${packageName})`)
+
+        // 现在调用scrape-google-play，传递packageName
+        const googlePlayRequestBody = JSON.stringify({
+          appName,
+          packageName,
+          scrapingSessionId
+        })
+
+        const scrapingResponse = await fetch(`${baseUrl}/functions/v1/scrape-google-play`, {
+          method: 'POST',
+          headers,
+          body: googlePlayRequestBody
+        })
+
+        if (scrapingResponse.ok) {
+          result.data = await scrapingResponse.json()
           result.success = true
           console.log(`Google Play scraping completed: ${result.data.reviews?.length || 0} reviews`)
         } else {
-          const errorText = await response.text()
-          result.error = `HTTP ${response.status}: ${errorText}`
+          const errorText = await scrapingResponse.text()
+          result.error = `HTTP ${scrapingResponse.status}: ${errorText}`
           console.error(`Google Play scraping failed: ${result.error}`)
         }
+
       } catch (error) {
         result.error = error.message
         console.error(`Google Play scraping error: ${error.message}`)
       }
+
       return result
-    })
+    })()
+
     scrapingPromises.googlePlay = googlePlayPromise
   } else {
     // 为禁用的平台创建一个立即解析的Promise
-    scrapingPromises.googlePlay = Promise.resolve({ 
-      platform: 'google_play', 
-      success: true, 
-      data: { reviews: [] }, 
+    scrapingPromises.googlePlay = Promise.resolve({
+      platform: 'google_play',
+      success: true,
+      data: { reviews: [] },
       error: null,
-      disabled: true 
+      disabled: true
     })
   }
 
