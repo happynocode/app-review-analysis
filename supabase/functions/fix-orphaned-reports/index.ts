@@ -87,7 +87,8 @@ Deno.serve(async (req: Request) => {
           const response = await fetch(`${supabaseUrl}/functions/v1/complete-report-analysis`, {
             method: 'POST',
             headers: {
-              'Content-Type': 'application/json'
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${supabaseKey}`
             },
             body: JSON.stringify({
               reportId: report.id

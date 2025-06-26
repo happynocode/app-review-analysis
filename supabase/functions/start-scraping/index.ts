@@ -397,12 +397,13 @@ async function scrapeSpecificIOSApp(appInfo: any, scrapingSessionId: string) {
     const response = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/scrape-app-store`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`
       },
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         appName: appInfo.name,
         appId: appInfo.id,
-        scrapingSessionId 
+        scrapingSessionId
       })
     })
 
@@ -423,12 +424,13 @@ async function scrapeSpecificAndroidApp(appInfo: any, scrapingSessionId: string)
     const response = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/scrape-google-play`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`
       },
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         appName: appInfo.name,
         packageName: appInfo.packageId,
-        scrapingSessionId 
+        scrapingSessionId
       })
     })
 
@@ -448,14 +450,15 @@ async function scrapeRedditForApp(appName: string, scrapingSessionId: string, us
   try {
     console.log(`🎯 Calling Reddit scraper with app name: "${appName}"`)
     console.log(`🎯 User search term: "${userSearchTerm || 'not provided'}", Selected app: "${selectedAppName || 'not provided'}"`)
-    
+
     const response = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/scrape-reddit`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`
       },
-      body: JSON.stringify({ 
-        appName: selectedAppName || appName, // 🆕 使用selectedAppName作为app名称  
+      body: JSON.stringify({
+        appName: selectedAppName || appName, // 🆕 使用selectedAppName作为app名称
         userSearchTerm: userSearchTerm, // 🆕 传递用户搜索词
         scrapingSessionId,
         // 移除maxPosts限制，让scrape-reddit获取所有可用数据
@@ -480,7 +483,8 @@ function startParallelScraping(appName: string, scrapingSessionId: string, reddi
   const baseUrl = Deno.env.get('SUPABASE_URL')
 
   const headers = {
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`
   }
 
   // 🆕 确定启用的平台

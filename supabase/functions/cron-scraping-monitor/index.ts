@@ -351,7 +351,8 @@ async function triggerAnalysis(supabaseUrl: string, supabaseKey: string, reportI
     const response = await fetch(`${supabaseUrl}/functions/v1/start-analysis-v2`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${supabaseKey}`
       },
       body: JSON.stringify({
         reportId,

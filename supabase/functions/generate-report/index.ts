@@ -242,7 +242,8 @@ async function initiateScrapingProcess(
     const scrapingResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/start-scraping`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`
       },
       body: JSON.stringify({
         reportId,

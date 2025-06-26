@@ -189,7 +189,8 @@ async function processBatches(supabaseUrl: string, supabaseKey: string, reportId
     const response = await fetch(`${supabaseUrl}/functions/v1/process-analysis-batch-v2`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${supabaseKey}`
       },
       body: JSON.stringify({ reportId })
     });
@@ -218,7 +219,8 @@ async function completeReport(supabaseUrl: string, supabaseKey: string, reportId
     const response = await fetch(`${supabaseUrl}/functions/v1/complete-report-analysis`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${supabaseKey}`
       },
       body: JSON.stringify({ reportId })
     });
