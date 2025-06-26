@@ -341,34 +341,78 @@ async function scrapeMultipleApps(selectedApps: any[], scrapingSessionId: string
     return allData
   }
 
-  for (const app of selectedApps) {
+  // 🚀 改为并发处理所有应用，提高效率
+  const appPromises = selectedApps.map(async (app) => {
     console.log(`\n🔄 Processing app: ${app.name} (platform: ${app.platform})`)
     console.log(`📋 App details:`, JSON.stringify(app, null, 2))
 
+    const appResults = {
+      appStore: [],
+      googlePlay: [],
+      reddit: []
+    }
+
     try {
+      // 🚀 并发执行平台scraping
+      const platformPromises = []
+
       if (app.platform === 'ios') {
-        console.log(`🍎 Calling scrapeSpecificIOSApp for ${app.name}`)
-        const appStoreData = await scrapeSpecificIOSApp(app, scrapingSessionId)
-        console.log(`🍎 scrapeSpecificIOSApp returned ${appStoreData?.length || 0} reviews`)
-        allData.appStore.push(...appStoreData)
+        console.log(`🍎 Starting scrapeSpecificIOSApp for ${app.name}`)
+        platformPromises.push(
+          scrapeSpecificIOSApp(app, scrapingSessionId).then(data => {
+            console.log(`🍎 scrapeSpecificIOSApp completed for ${app.name}: ${data?.length || 0} reviews`)
+            appResults.appStore = data
+          }).catch(error => {
+            console.error(`❌ iOS scraping failed for ${app.name}:`, error)
+          })
+        )
       } else if (app.platform === 'android') {
-        console.log(`🤖 Calling scrapeSpecificAndroidApp for ${app.name}`)
-        const googlePlayData = await scrapeSpecificAndroidApp(app, scrapingSessionId)
-        console.log(`🤖 scrapeSpecificAndroidApp returned ${googlePlayData?.length || 0} reviews`)
-        allData.googlePlay.push(...googlePlayData)
+        console.log(`🤖 Starting scrapeSpecificAndroidApp for ${app.name}`)
+        platformPromises.push(
+          scrapeSpecificAndroidApp(app, scrapingSessionId).then(data => {
+            console.log(`🤖 scrapeSpecificAndroidApp completed for ${app.name}: ${data?.length || 0} reviews`)
+            appResults.googlePlay = data
+          }).catch(error => {
+            console.error(`❌ Android scraping failed for ${app.name}:`, error)
+          })
+        )
       } else {
         console.warn(`⚠️ Unknown platform for app ${app.name}: ${app.platform}`)
       }
 
       // 🔑 Reddit 搜索使用用户提供的名称
       const searchName = redditSearchName || app.name
-      console.log(`🎯 Reddit search for app ${app.name} using name: "${searchName}"`)
-      const redditData = await scrapeRedditForApp(searchName, scrapingSessionId)
-      console.log(`🎯 Reddit search returned ${redditData?.length || 0} posts`)
-      allData.reddit.push(...redditData)
+      console.log(`🎯 Starting Reddit search for app ${app.name} using name: "${searchName}"`)
+      platformPromises.push(
+        scrapeRedditForApp(searchName, scrapingSessionId).then(data => {
+          console.log(`🎯 Reddit search completed for ${app.name}: ${data?.length || 0} posts`)
+          appResults.reddit = data
+        }).catch(error => {
+          console.error(`❌ Reddit scraping failed for ${app.name}:`, error)
+        })
+      )
+
+      // 等待该应用的所有平台scraping完成
+      await Promise.allSettled(platformPromises)
 
     } catch (error) {
-      console.error(`❌ Error scraping app ${app.name}:`, error)
+      console.error(`❌ Error processing app ${app.name}:`, error)
+    }
+
+    return appResults
+  })
+
+  // 等待所有应用处理完成
+  console.log(`🚀 Waiting for all ${selectedApps.length} apps to complete...`)
+  const appResults = await Promise.allSettled(appPromises)
+
+  // 合并所有结果
+  for (const result of appResults) {
+    if (result.status === 'fulfilled') {
+      const appData = result.value
+      allData.appStore.push(...(appData.appStore || []))
+      allData.googlePlay.push(...(appData.googlePlay || []))
+      allData.reddit.push(...(appData.reddit || []))
     }
   }
 
