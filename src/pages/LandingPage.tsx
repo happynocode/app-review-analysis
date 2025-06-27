@@ -160,27 +160,29 @@ export const LandingPage: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-[#0A1128] via-[#0F1B3C] to-[#0A1128]">
       {/* Header */}
       <header className="border-b border-white/10 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             className="flex items-center space-x-2"
           >
-            <BarChart3 className="w-8 h-8 text-[#2DD4BF]" />
-            <span className="text-xl font-bold text-white">FeedbackLens</span>
+            <BarChart3 className="w-6 h-6 sm:w-8 sm:h-8 text-[#2DD4BF]" />
+            <span className="text-lg sm:text-xl font-bold text-white">FeedbackLens</span>
           </motion.div>
-          
+
           <motion.div
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            className="flex items-center space-x-4"
+            className="flex items-center space-x-2 sm:space-x-4"
           >
             {user ? (
-              <div className="flex items-center space-x-4">
-                <span className="text-white/70">Welcome back!</span>
+              <div className="flex items-center space-x-2 sm:space-x-4">
+                <span className="text-white/70 text-sm hidden sm:inline">Welcome back!</span>
                 <Button
                   variant="secondary"
+                  size="sm"
                   onClick={() => navigate('/dashboard')}
+                  className="text-sm"
                 >
                   Dashboard
                 </Button>
@@ -188,7 +190,9 @@ export const LandingPage: React.FC = () => {
             ) : (
               <Button
                 variant="secondary"
+                size="sm"
                 onClick={() => setShowAuthModal(true)}
+                className="text-sm"
               >
                 Sign In
               </Button>
@@ -198,23 +202,23 @@ export const LandingPage: React.FC = () => {
       </header>
 
       {/* Hero Section */}
-      <section className="py-20 px-6">
+      <section className="py-12 sm:py-16 lg:py-20 px-4 sm:px-6">
         <div className="max-w-4xl mx-auto text-center">
           <motion.h1
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8 }}
-            className="text-5xl md:text-6xl font-bold text-white mb-6 leading-tight"
+            className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 sm:mb-6 leading-tight"
           >
             Transform User Feedback
             <span className="text-[#2DD4BF] block">into Actionable Insights</span>
           </motion.h1>
-          
+
           <motion.p
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.2 }}
-            className="text-xl text-white/70 mb-12 max-w-2xl mx-auto leading-relaxed"
+            className="text-lg sm:text-xl text-white/70 mb-8 sm:mb-12 max-w-2xl mx-auto leading-relaxed px-4"
           >
             Generate comprehensive reports from user reviews across App Store, Google Play, Reddit, and more.
             Get actionable insights in under 60 seconds.
@@ -226,14 +230,14 @@ export const LandingPage: React.FC = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.3 }}
-              className="mb-8 max-w-md mx-auto"
+              className="mb-6 sm:mb-8 max-w-md mx-auto px-4"
             >
               <input
                 type="text"
                 placeholder="Enter company or app name (e.g., Uber, Instagram)"
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
-                className="w-full px-6 py-4 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-[#2DD4BF] focus:border-transparent backdrop-blur-sm transition-all duration-200 text-lg"
+                className="w-full px-4 sm:px-6 py-3 sm:py-4 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-[#2DD4BF] focus:border-transparent backdrop-blur-sm transition-all duration-200 text-base sm:text-lg"
                 onKeyPress={(e) => {
                   if (e.key === 'Enter' && companyName.trim() && !isGenerating) {
                     handleGenerateReport()
@@ -249,14 +253,14 @@ export const LandingPage: React.FC = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.4 }}
-            className="mb-8"
+            className="mb-6 sm:mb-8 px-4"
           >
             <Button
               size="lg"
               onClick={handleGenerateReport}
               disabled={(user && !companyName.trim()) || isGenerating}
               loading={isGenerating}
-              className="text-xl px-12 py-6 shadow-2xl shadow-[#2DD4BF]/30"
+              className="text-lg sm:text-xl px-8 sm:px-12 py-4 sm:py-6 shadow-2xl shadow-[#2DD4BF]/30 w-full sm:w-auto"
             >
               {isGenerating ? 'Generating...' : 'Generate Analysis'}
             </Button>
@@ -319,7 +323,7 @@ export const LandingPage: React.FC = () => {
       </section>
 
       {/* CTA Section */}
-      <section className="py-20 px-6">
+      <section className="py-12 sm:py-16 lg:py-20 px-4 sm:px-6">
         <div className="max-w-4xl mx-auto text-center">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -327,16 +331,16 @@ export const LandingPage: React.FC = () => {
             transition={{ duration: 0.6, delay: 1.2 }}
           >
             <Card className="bg-gradient-to-r from-[#2DD4BF]/10 to-[#14B8A6]/10 border-[#2DD4BF]/20">
-              <h2 className="text-3xl font-bold text-white mb-4">
+              <h2 className="text-2xl sm:text-3xl font-bold text-white mb-4">
                 Ready to Get Started?
               </h2>
-              <p className="text-white/70 mb-8 text-lg">
+              <p className="text-white/70 mb-6 sm:mb-8 text-base sm:text-lg px-4">
                 Join thousands of product teams using FeedbackLens to make data-driven decisions
               </p>
               <Button
                 size="lg"
                 onClick={() => user ? handleGenerateReport() : setShowAuthModal(true)}
-                className="text-lg px-8 py-4"
+                className="text-base sm:text-lg px-6 sm:px-8 py-3 sm:py-4 w-full sm:w-auto"
                 disabled={isGenerating}
                 loading={isGenerating}
               >
@@ -348,9 +352,9 @@ export const LandingPage: React.FC = () => {
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-white/10 py-8 px-6">
+      <footer className="border-t border-white/10 py-6 sm:py-8 px-4 sm:px-6">
         <div className="max-w-6xl mx-auto text-center text-white/60">
-          <p>&copy; 2025 FeedbackLens. All rights reserved.</p>
+          <p className="text-sm sm:text-base">&copy; 2025 FeedbackLens. All rights reserved.</p>
         </div>
       </footer>
 

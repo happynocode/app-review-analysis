@@ -34,30 +34,30 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({ theme, index }) => {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: index * 0.1 }}
     >
-      <Card className="p-6 bg-white/10 backdrop-blur-sm border-white/20 hover:bg-white/15 transition-all duration-300 cursor-pointer">
+      <Card className="p-4 sm:p-6 bg-white/10 backdrop-blur-sm border-white/20 hover:bg-white/15 transition-all duration-300 cursor-pointer">
         <div
           onClick={() => setIsExpanded(!isExpanded)}
           className="flex items-start justify-between"
         >
-          <div className="flex-1">
-            <div className="flex items-center mb-2">
-              <h3 className="text-xl font-semibold text-white mr-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-col sm:flex-row sm:items-center mb-2 gap-2">
+              <h3 className="text-lg sm:text-xl font-semibold text-white">
                 {theme.title}
               </h3>
               {platformInfo && (
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${platformInfo.color} ${platformInfo.textColor}`}>
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${platformInfo.color} ${platformInfo.textColor} self-start sm:self-auto`}>
                   {platformInfo.name}
                 </span>
               )}
             </div>
-            <p className="text-white/70 leading-relaxed">
+            <p className="text-white/70 text-sm leading-relaxed">
               {theme.description}
             </p>
           </div>
           <motion.div
             animate={{ rotate: isExpanded ? 180 : 0 }}
             transition={{ duration: 0.2 }}
-            className="ml-4 mt-1"
+            className="ml-2 sm:ml-4 mt-1 flex-shrink-0"
           >
             <ChevronDown className="w-5 h-5 text-white/60" />
           </motion.div>

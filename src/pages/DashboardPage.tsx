@@ -192,39 +192,39 @@ export const DashboardPage: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-[#0A1128] via-[#0F1B3C] to-[#0A1128]">
       {/* Header */}
       <header className="border-b border-white/10 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             className="flex items-center space-x-2"
           >
-            <BarChart3 className="w-8 h-8 text-[#2DD4BF]" />
-            <span className="text-xl font-bold text-white">FeedbackLens</span>
+            <BarChart3 className="w-6 h-6 sm:w-8 sm:h-8 text-[#2DD4BF]" />
+            <span className="text-lg sm:text-xl font-bold text-white">FeedbackLens</span>
           </motion.div>
-          
+
           <motion.div
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            className="flex items-center space-x-4"
+            className="flex items-center space-x-2 sm:space-x-4"
           >
-            <span className="text-white/70">Welcome, {user?.email}</span>
-            <Button variant="ghost" onClick={signOut}>
+            <span className="text-white/70 text-sm hidden sm:inline">Welcome, {user?.email}</span>
+            <Button variant="ghost" size="sm" onClick={signOut}>
               Sign Out
             </Button>
           </motion.div>
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Page Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-center justify-between mb-8"
+          className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 sm:mb-8 gap-4"
         >
           <div>
-            <h1 className="text-3xl font-bold text-white mb-2">Dashboard</h1>
-            <p className="text-white/70">Manage your analysis reports</p>
+            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">Dashboard</h1>
+            <p className="text-white/70 text-sm sm:text-base">Manage your analysis reports</p>
             {hasProcessingReports && (
               <p className="text-yellow-400 text-sm mt-1 flex items-center">
                 <Clock className="w-4 h-4 mr-1" />
@@ -232,16 +232,18 @@ export const DashboardPage: React.FC = () => {
               </p>
             )}
           </div>
-          <div className="flex items-center space-x-3">
-            <Button 
-              variant="secondary" 
+          <div className="flex items-center space-x-2 sm:space-x-3">
+            <Button
+              variant="secondary"
               onClick={handleRefresh}
               icon={RefreshCw}
               disabled={loading}
+              size="sm"
+              className="text-sm"
             >
               {loading ? 'Refreshing...' : 'Refresh'}
             </Button>
-            <Button onClick={handleNewReport} icon={Plus}>
+            <Button onClick={handleNewReport} icon={Plus} size="sm" className="text-sm">
               New Report
             </Button>
           </div>
@@ -252,52 +254,52 @@ export const DashboardPage: React.FC = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="grid md:grid-cols-4 gap-6 mb-8"
+          className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 mb-6 sm:mb-8"
         >
-          <Card>
+          <Card className="p-4 sm:p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-white/60 text-sm">Total Reports</p>
-                <p className="text-2xl font-bold text-white">{reports.length}</p>
+                <p className="text-white/60 text-xs sm:text-sm">Total Reports</p>
+                <p className="text-lg sm:text-2xl font-bold text-white">{reports.length}</p>
               </div>
-              <BarChart3 className="w-8 h-8 text-[#2DD4BF]" />
+              <BarChart3 className="w-6 h-6 sm:w-8 sm:h-8 text-[#2DD4BF]" />
             </div>
           </Card>
-          <Card>
+          <Card className="p-4 sm:p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-white/60 text-sm">Completed</p>
-                <p className="text-2xl font-bold text-white">
+                <p className="text-white/60 text-xs sm:text-sm">Completed</p>
+                <p className="text-lg sm:text-2xl font-bold text-white">
                   {reports.filter(r => r.status === 'completed').length}
                 </p>
               </div>
-              <CheckCircle className="w-8 h-8 text-green-400" />
+              <CheckCircle className="w-6 h-6 sm:w-8 sm:h-8 text-green-400" />
             </div>
           </Card>
-          <Card>
+          <Card className="p-4 sm:p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-white/60 text-sm">Processing</p>
-                <p className="text-2xl font-bold text-white">
+                <p className="text-white/60 text-xs sm:text-sm">Processing</p>
+                <p className="text-lg sm:text-2xl font-bold text-white">
                   {reports.filter(r =>
                     r.status === 'processing' || r.status === 'scraping' || r.status === 'scraping_completed' || r.status === 'analyzing' || r.status === 'completing'
                   ).length}
                 </p>
               </div>
-              <Clock className="w-8 h-8 text-yellow-400" />
+              <Clock className="w-6 h-6 sm:w-8 sm:h-8 text-yellow-400" />
             </div>
           </Card>
-          <Card>
+          <Card className="p-4 sm:p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-white/60 text-sm">This Month</p>
-                <p className="text-2xl font-bold text-white">
-                  {reports.filter(r => 
+                <p className="text-white/60 text-xs sm:text-sm">This Month</p>
+                <p className="text-lg sm:text-2xl font-bold text-white">
+                  {reports.filter(r =>
                     new Date(r.created_at).getMonth() === new Date().getMonth()
                   ).length}
                 </p>
               </div>
-              <Calendar className="w-8 h-8 text-[#2DD4BF]" />
+              <Calendar className="w-6 h-6 sm:w-8 sm:h-8 text-[#2DD4BF]" />
             </div>
           </Card>
         </motion.div>

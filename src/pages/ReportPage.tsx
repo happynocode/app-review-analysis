@@ -461,79 +461,100 @@ export const ReportPage: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-[#0A1128] via-[#0F1B3C] to-[#0A1128]">
       {/* Header */}
       <header className="border-b border-white/10 backdrop-blur-sm sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-6 py-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2 sm:space-x-4 flex-1 min-w-0">
               <Button
                 variant="ghost"
                 onClick={() => navigate('/dashboard')}
-                className="p-2"
+                className="p-2 flex-shrink-0"
               >
                 <ArrowLeft className="w-5 h-5" />
               </Button>
-              <div>
-                <h1 className="text-2xl font-bold text-white">
+              <div className="min-w-0 flex-1">
+                <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-white truncate">
                   {currentReport.user_search_term || currentReport.app_name} Analysis
                 </h1>
-                <div className="flex items-center text-white/60 text-sm mt-1">
-                  <Calendar className="w-4 h-4 mr-1" />
-                  <span>Generated {new Date(currentReport.created_at).toLocaleDateString()}</span>
+                <div className="flex items-center text-white/60 text-xs sm:text-sm mt-1">
+                  <Calendar className="w-3 h-3 sm:w-4 sm:h-4 mr-1 flex-shrink-0" />
+                  <span className="truncate">Generated {new Date(currentReport.created_at).toLocaleDateString()}</span>
                 </div>
               </div>
             </div>
-            
-            <div className="flex items-center space-x-3">
 
+            <div className="flex items-center space-x-1 sm:space-x-3 flex-shrink-0">
               <Button
                 variant="secondary"
                 onClick={handleRefresh}
                 icon={RefreshCw}
                 disabled={isRefreshing}
+                size="sm"
+                className="hidden sm:inline-flex"
               >
                 {isRefreshing ? 'Refreshing...' : 'Refresh'}
               </Button>
-              <Button variant="secondary" onClick={handleShare} icon={Share2}>
+              <Button
+                variant="secondary"
+                onClick={handleShare}
+                icon={Share2}
+                size="sm"
+                className="hidden sm:inline-flex"
+              >
                 Share
               </Button>
-              <Button variant="secondary" onClick={handleDownload} icon={Download}>
+              <Button
+                variant="secondary"
+                onClick={handleDownload}
+                icon={Download}
+                size="sm"
+                className="hidden sm:inline-flex"
+              >
                 Download
+              </Button>
+              {/* Mobile menu button - you can expand this later */}
+              <Button
+                variant="secondary"
+                size="sm"
+                className="sm:hidden"
+                onClick={handleDownload}
+              >
+                <Download className="w-4 h-4" />
               </Button>
             </div>
           </div>
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
-
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
 
         {/* Processing Progress Bar */}
         {processingProgress && (
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-6"
+            className="mb-4 sm:mb-6"
           >
-            <Card className="p-6 bg-blue-50 border-blue-200">
+            <Card className="p-4 sm:p-6 bg-blue-50 border-blue-200">
               <div className="flex items-center justify-between mb-3">
-                                 <div className="flex items-center">
+                <div className="flex items-center">
                    <LoadingSpinner size="sm" inline={true} message="" />
-                   <span className="ml-2 font-medium text-blue-900">
+                   <span className="ml-2 font-medium text-blue-900 text-sm sm:text-base">
                      {processingProgress.current_stage}
                    </span>
                  </div>
-                <span className="text-blue-700 font-medium">
+                <span className="text-blue-700 font-medium text-sm sm:text-base">
                   {processingProgress.progress_percentage.toFixed(1)}%
                 </span>
               </div>
-              
-              <div className="w-full bg-blue-200 rounded-full h-3 mb-3">
+
+              <div className="w-full bg-blue-200 rounded-full h-2 sm:h-3 mb-3">
                 <div
-                  className="bg-blue-600 h-3 rounded-full transition-all duration-500 ease-out"
+                  className="bg-blue-600 h-2 sm:h-3 rounded-full transition-all duration-500 ease-out"
                   style={{ width: `${processingProgress.progress_percentage}%` }}
                 />
               </div>
-              
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-blue-700">
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 text-xs sm:text-sm text-blue-700">
                 <div>
                   <span className="font-medium">Total Batches:</span> {processingProgress.total_batches}
                 </div>
@@ -544,8 +565,8 @@ export const ReportPage: React.FC = () => {
                   <span className="font-medium">Remaining:</span> {processingProgress.total_batches - processingProgress.completed_batches}
                 </div>
                 {processingProgress.estimated_completion && (
-                  <div>
-                    <span className="font-medium">Estimated Completion:</span> {processingProgress.estimated_completion}
+                  <div className="sm:col-span-2 lg:col-span-1">
+                    <span className="font-medium">Est. Completion:</span> {processingProgress.estimated_completion}
                   </div>
                 )}
               </div>
@@ -554,7 +575,7 @@ export const ReportPage: React.FC = () => {
         )}
 
 {/* Report Content */}
-          <div className="grid lg:grid-cols-4 gap-8">
+          <div className="grid lg:grid-cols-4 gap-4 sm:gap-6 lg:gap-8">
             {/* Main Content */}
             <div className="lg:col-span-3 space-y-6">
             <motion.div
@@ -588,43 +609,45 @@ export const ReportPage: React.FC = () => {
               </div>
               
               {/* Platform Tabs */}
-              <div className="flex flex-wrap gap-2 mb-4">
+              <div className="flex flex-wrap gap-1 sm:gap-2 mb-4">
                 {[
-                  { key: 'all', label: 'All Platforms', count: platformStats.total },
-                  { key: 'reddit', label: 'Reddit', count: platformStats.reddit },
-                  { key: 'app_store', label: 'App Store', count: platformStats.app_store },
-                  { key: 'google_play', label: 'Google Play', count: platformStats.google_play }
-                ].map(({ key, label, count }) => (
+                  { key: 'all', label: 'All Platforms', shortLabel: 'All', count: platformStats.total },
+                  { key: 'reddit', label: 'Reddit', shortLabel: 'Reddit', count: platformStats.reddit },
+                  { key: 'app_store', label: 'App Store', shortLabel: 'App Store', count: platformStats.app_store },
+                  { key: 'google_play', label: 'Google Play', shortLabel: 'Play', count: platformStats.google_play }
+                ].map(({ key, label, shortLabel, count }) => (
                   <button
                     key={key}
                     onClick={() => setActivePlatform(key as any)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    className={`px-2 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 ${
                       activePlatform === key
                         ? 'bg-[#2DD4BF] text-black'
                         : 'bg-white/10 text-white/70 hover:bg-white/20 hover:text-white'
                     }`}
                   >
-                    {label} ({count})
+                    <span className="hidden sm:inline">{label}</span>
+                    <span className="sm:hidden">{shortLabel}</span>
+                    <span className="ml-1">({count})</span>
                   </button>
                 ))}
               </div>
 
               {/* Platform Statistics */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center p-3 bg-white/5 rounded-lg">
-                  <div className="text-2xl font-bold text-orange-400">{platformStats.reddit}</div>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
+                <div className="text-center p-2 sm:p-3 bg-white/5 rounded-lg">
+                  <div className="text-lg sm:text-2xl font-bold text-orange-400">{platformStats.reddit}</div>
                   <div className="text-xs text-white/60">Reddit Themes</div>
                 </div>
-                <div className="text-center p-3 bg-white/5 rounded-lg">
-                  <div className="text-2xl font-bold text-blue-400">{platformStats.app_store}</div>
+                <div className="text-center p-2 sm:p-3 bg-white/5 rounded-lg">
+                  <div className="text-lg sm:text-2xl font-bold text-blue-400">{platformStats.app_store}</div>
                   <div className="text-xs text-white/60">App Store Themes</div>
                 </div>
-                <div className="text-center p-3 bg-white/5 rounded-lg">
-                  <div className="text-2xl font-bold text-green-400">{platformStats.google_play}</div>
+                <div className="text-center p-2 sm:p-3 bg-white/5 rounded-lg">
+                  <div className="text-lg sm:text-2xl font-bold text-green-400">{platformStats.google_play}</div>
                   <div className="text-xs text-white/60">Google Play Themes</div>
                 </div>
-                <div className="text-center p-3 bg-white/5 rounded-lg">
-                  <div className="text-2xl font-bold text-[#2DD4BF]">{platformStats.total}</div>
+                <div className="text-center p-2 sm:p-3 bg-white/5 rounded-lg">
+                  <div className="text-lg sm:text-2xl font-bold text-[#2DD4BF]">{platformStats.total}</div>
                   <div className="text-xs text-white/60">Total Themes</div>
                 </div>
               </div>
@@ -634,7 +657,7 @@ export const ReportPage: React.FC = () => {
                 <div className="mt-4 p-3 bg-white/5 rounded-lg">
                   <div className="flex items-center">
                     <div className={`w-3 h-3 rounded-full mr-2 ${getPlatformColor(activePlatform).replace('text-', 'bg-')}`}></div>
-                    <span className="text-white font-medium">
+                    <span className="text-white font-medium text-sm sm:text-base">
                       Showing {getPlatformName(activePlatform)} themes ({currentThemes.length})
                     </span>
                   </div>
@@ -657,8 +680,8 @@ export const ReportPage: React.FC = () => {
             )}
             </div>
 
-            {/* Sidebar */}
-            <div className="lg:col-span-1">
+            {/* Sidebar - Hidden on mobile, shown on large screens */}
+            <div className="hidden lg:block lg:col-span-1">
               {currentThemes && currentThemes.length > 0 && (
                 <SidebarNav themes={currentThemes} onThemeClick={scrollToTheme} />
               )}
