@@ -346,43 +346,43 @@ export const DashboardPage: React.FC = () => {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: 0.3 + index * 0.1 }}
-                  className="flex items-center justify-between p-4 bg-white/5 rounded-xl border border-white/10 hover:bg-white/10 transition-all duration-200"
+                  className="flex items-center justify-between p-3 sm:p-4 bg-white/5 rounded-xl border border-white/10 hover:bg-white/10 transition-all duration-200 min-w-0"
                 >
-                  <div className="flex items-center space-x-4">
-                    <div className="w-12 h-12 bg-[#2DD4BF]/20 rounded-lg flex items-center justify-center">
-                      <BarChart3 className="w-6 h-6 text-[#2DD4BF]" />
+                  <div className="flex items-center space-x-3 sm:space-x-4 flex-1 min-w-0">
+                    <div className="w-10 h-10 sm:w-12 sm:h-12 bg-[#2DD4BF]/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <BarChart3 className="w-5 h-5 sm:w-6 sm:h-6 text-[#2DD4BF]" />
                     </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-white">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-white text-sm sm:text-base truncate">
                         {report.user_search_term || report.app_name}
                       </h3>
-                      
+
                       {report.selected_app_name && report.selected_app_name !== report.user_search_term && (
-                        <div className="text-sm text-white/70 mt-1">
-                          <span className="bg-green-500/20 text-green-300 px-2 py-1 rounded-md">
+                        <div className="text-xs sm:text-sm text-white/70 mt-1">
+                          <span className="bg-green-500/20 text-green-300 px-2 py-1 rounded-md truncate inline-block max-w-full">
                             App: {report.selected_app_name}
                           </span>
                         </div>
                       )}
-                      
-                      <div className="flex items-center space-x-4 text-sm text-white/60 mt-2">
+
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 text-xs sm:text-sm text-white/60 mt-2 gap-1 sm:gap-0">
                         <div className="flex items-center">
-                          <Calendar className="w-4 h-4 mr-1" />
-                          {new Date(report.created_at).toLocaleDateString()}
+                          <Calendar className="w-3 h-3 sm:w-4 sm:h-4 mr-1 flex-shrink-0" />
+                          <span className="truncate">{new Date(report.created_at).toLocaleDateString()}</span>
                         </div>
                         <div className="flex items-center">
                           {getStatusIcon(report.status)}
-                          <span className="ml-1">{getStatusText(report.status, report)}</span>
+                          <span className="ml-1 truncate">{getStatusText(report.status, report)}</span>
                         </div>
-                        
+
                         {report.enabled_platforms && report.enabled_platforms.length > 0 && (
-                          <div className="flex items-center">
-                            <span className="text-white/40 mr-2">Platforms:</span>
-                            <div className="flex space-x-1">
+                          <div className="flex items-center min-w-0">
+                            <span className="text-white/40 mr-2 hidden sm:inline">Platforms:</span>
+                            <div className="flex space-x-1 flex-wrap">
                               {report.enabled_platforms.map((platform: string) => (
-                                <span 
+                                <span
                                   key={platform}
-                                  className={`px-2 py-1 rounded text-xs font-medium ${
+                                  className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-xs font-medium ${
                                     platform === 'app_store' ? 'bg-gray-500/20 text-gray-300' :
                                     platform === 'google_play' ? 'bg-green-500/20 text-green-300' :
                                     platform === 'reddit' ? 'bg-orange-500/20 text-orange-300' :
@@ -408,34 +408,40 @@ export const DashboardPage: React.FC = () => {
                     </div>
                   </div>
                   
-                  <div className="flex items-center space-x-3">
+                  <div className="flex items-center space-x-2 sm:space-x-3 flex-shrink-0">
                     {report.status === 'completed' && (
                       <Button
                         variant="secondary"
                         size="sm"
                         onClick={() => handleViewReport(report.id)}
                         icon={ArrowRight}
+                        className="text-xs sm:text-sm"
                       >
-                        View Report
+                        <span className="hidden sm:inline">View Report</span>
+                        <span className="sm:hidden">View</span>
                       </Button>
                     )}
                     {(report.status === 'processing' || report.status === 'scraping' || report.status === 'scraping_completed' || report.status === 'analyzing' || report.status === 'completing') && (
-                      <div className="text-yellow-400 text-sm flex items-center">
-                        <Clock className="w-4 h-4 mr-1 animate-spin" />
-                        {report.status === 'scraping' ? 'Scraping...' :
-                         report.status === 'scraping_completed' ? 'Starting analysis...' :
-                         report.status === 'analyzing' ? 'Analyzing...' :
-                         report.status === 'completing' ? 'Finalizing...' : 'Processing...'}
+                      <div className="text-yellow-400 text-xs sm:text-sm flex items-center">
+                        <Clock className="w-3 h-3 sm:w-4 sm:h-4 mr-1 animate-spin" />
+                        <span className="hidden sm:inline">
+                          {report.status === 'scraping' ? 'Scraping...' :
+                           report.status === 'scraping_completed' ? 'Starting analysis...' :
+                           report.status === 'analyzing' ? 'Analyzing...' :
+                           report.status === 'completing' ? 'Finalizing...' : 'Processing...'}
+                        </span>
+                        <span className="sm:hidden">Processing</span>
                       </div>
                     )}
                     {(report.status === 'error' || report.status === 'failed') && (
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-1 sm:space-x-2">
                         <Button
                           variant="secondary"
                           size="sm"
                           onClick={() => handleRetryReport(report.id, report.app_name)}
                           disabled={retryingReports.has(report.id)}
                           loading={retryingReports.has(report.id)}
+                          className="text-xs sm:text-sm"
                         >
                           {retryingReports.has(report.id) ? 'Retrying...' : 'Retry'}
                         </Button>
@@ -444,12 +450,12 @@ export const DashboardPage: React.FC = () => {
                             variant="ghost"
                             size="sm"
                             onClick={() => {
-                              const message = report.failure_stage === 'scraping' 
+                              const message = report.failure_stage === 'scraping'
                                 ? `Scraping failed: ${report.error_message}\n\nSuggestion: ${report.failure_details?.suggestion || 'Please try using different keywords'}`
                                 : `Analysis failed: ${report.error_message}\n\nReason: ${report.failure_details?.reason || 'System error'}`
                               alert(message)
                             }}
-                            className="text-gray-400 hover:text-gray-300"
+                            className="text-gray-400 hover:text-gray-300 text-xs sm:text-sm hidden sm:inline-flex"
                           >
                             Details
                           </Button>
