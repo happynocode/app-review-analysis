@@ -8,6 +8,7 @@ interface AuthState {
   loading: boolean
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string) => Promise<void>
+  signInWithGoogle: () => Promise<void>
   signOut: () => Promise<void>
   initialize: () => Promise<void>
 }
@@ -31,9 +32,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       password,
     })
     if (error) throw error
-    
+
     // User profile will be created automatically by the database trigger
     set({ user: data.user })
+  },
+
+  signInWithGoogle: async () => {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/feedbacklens`
+      }
+    })
+    if (error) throw error
   },
 
   signOut: async () => {
