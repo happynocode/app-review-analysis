@@ -208,7 +208,16 @@ export const DashboardPage: React.FC = () => {
             className="flex items-center space-x-2 sm:space-x-4"
           >
             <span className="text-white/70 text-sm hidden sm:inline">Welcome, {user?.email}</span>
-            <Button variant="ghost" size="sm" onClick={signOut}>
+            <Button variant="ghost" size="sm" onClick={async () => {
+              try {
+                await signOut()
+                navigate('/')
+              } catch (error) {
+                console.error('Sign out error:', error)
+                // Even if signOut fails, navigate to home
+                navigate('/')
+              }
+            }}>
               Sign Out
             </Button>
           </motion.div>

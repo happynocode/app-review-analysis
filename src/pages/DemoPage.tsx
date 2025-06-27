@@ -11,8 +11,14 @@ export const DemoPage: React.FC = () => {
   const { user, signOut } = useAuthStore()
 
   const handleSignOut = async () => {
-    await signOut()
-    navigate('/')
+    try {
+      await signOut()
+      navigate('/')
+    } catch (error) {
+      console.error('Sign out error:', error)
+      // Even if signOut fails, navigate to home
+      navigate('/')
+    }
   }
 
   if (!user) {

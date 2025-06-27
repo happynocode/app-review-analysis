@@ -48,9 +48,32 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signOut: async () => {
-    const { error } = await supabase.auth.signOut()
-    if (error) throw error
-    set({ user: null })
+    try {
+      // Check if user is already signed out
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        // User is already signed out, just update state
+        set({ user: null })
+        return
+      }
+
+      const { error } = await supabase.auth.signOut()
+      if (error) {
+        // If it's a session missing error, just update state
+        if (error.message?.includes('session') || error.message?.includes('Auth session missing')) {
+          console.warn('Session already expired, updating state')
+          set({ user: null })
+          return
+        }
+        throw error
+      }
+      set({ user: null })
+    } catch (error) {
+      console.error('Sign out error:', error)
+      // Even if signOut fails, clear the local state
+      set({ user: null })
+      // Don't throw the error to prevent UI crashes
+    }
   },
 
   initialize: async () => {
